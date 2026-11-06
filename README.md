@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-claw-white.svg">
-    <img src="assets/logo-claw-black.svg" width="128" alt="rex-fingers: a dinosaur arm shaped like the letter F, with a claw on each finger">
-  </picture>
+  <img src="assets/logo-claw-tile-rex.svg" width="144" alt="rex-fingers: a dinosaur arm shaped like the letter F, with a claw on each finger, on a tile in Rex's colours">
 </p>
 
 # rex-fingers
