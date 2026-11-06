@@ -54,7 +54,7 @@ and the program calls `rex focus` on the original pane.
 | `internal/rexcli` | `Pane.Size`, `Capture`, `Write`, `Pwd`, `Focus` through the `rex` CLI |
 | `lua/rex-fingers/init.lua` | `setup(opts)`, the action, rect lookup, capture |
 | `docs/CONFIGURING.md` | user walkthrough |
-| `assets/` | logo SVGs: tile, transparent mark, black, white, adaptive; 512 px PNGs rendered with `qlmanage -t -s 512` |
+| `assets/` | `logo-claw-black.svg` and `logo-claw-white.svg`, the README logo, swapped by a `<picture>` for dark mode; older logo SVGs: tile, transparent mark, black, white, adaptive; 512 px PNGs rendered with `qlmanage -t -s 512` |
 
 ## Commands
 
