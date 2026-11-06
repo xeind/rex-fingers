@@ -9,9 +9,11 @@ local M = {}
 
 local terminal = "com.superlogical.terminal"
 
+-- Every option, with its default. The names and defaults follow
+-- tmux-fingers where Rex allows it.
 local defaults = {
-  -- Path of the rex-fingers binary. Empty means look it up on PATH through
-  -- the login shell, which is slower to start.
+  -- Absolute path of the rex-fingers binary. Empty looks it up on PATH
+  -- through the login shell, which is slower to start.
   binary = "",
   -- Key to bind, or false to bind nothing.
   key = "ctrl+b>shift+f",
@@ -19,18 +21,30 @@ local defaults = {
   patterns = {},
   -- Extra regular expressions, Go syntax.
   extra = {},
-  -- Command that reads the text to copy on stdin. Empty picks pbcopy,
-  -- wl-copy, or xclip.
+  -- What a hint does: ":copy:", ":paste:", ":open:", or a shell command
+  -- that reads the match on stdin. Every pick is copied first.
+  main_action = ":copy:",
+  shift_action = ":paste:",
+  ctrl_action = ":open:",
+  alt_action = "",
+  -- Command that :copy: runs with the match on stdin. Empty picks pbcopy,
+  -- wl-copy, xclip, or xsel.
   copy_command = "",
-  -- Letters used for hints.
+  -- Keyboard layout that picks the hint letters: qwerty, qwerty-homerow,
+  -- colemak, dvorak, ... `rex-fingers layouts` lists them.
+  keyboard_layout = "qwerty",
+  -- Hint letters, overriding the layout.
   alphabet = "",
-  -- Which edge of the pane to keep when the floating pane is shorter.
-  align = "bottom",
-  -- SGR parameters for the hint letters and the rest of the match.
+  -- Where the hint sits on the match: "left" or "right".
+  hint_position = "left",
+  -- SGR parameters for the hint letters and the rest of the match. The
+  -- defaults name theme palette slots, so they follow the theme.
   hint_style = "",
   highlight_style = "",
   -- Dim everything that is not a match, so the hints stand out.
   dim = true,
+  -- Which edge of the pane to keep when the floating pane is shorter.
+  align = "bottom",
 }
 
 -- rect_of walks a window's layout tree to the block and returns its
@@ -89,26 +103,43 @@ local function capture(ctx)
   return path, size.rows
 end
 
-local function command(opts, ctx)
+-- command builds the program's argument list. args are the action's own
+-- arguments, which override the setup options for one run.
+local function command(opts, ctx, args)
+  args = args or {}
+  local function pick(name)
+    local v = args[name]
+    if v == nil or v == "" then v = opts[name] end
+    return v
+  end
   local bin = opts.binary ~= "" and opts.binary or "rex-fingers"
   local path, rows = capture(ctx)
-  local argv = { bin, "show", "--session", ctx.session_id, "--block", ctx.block_id, "--align", opts.align,
-                 "--vt-file", path, "--rows", tostring(rows) }
+  local argv = { bin, "show", "--session", ctx.session_id, "--block", ctx.block_id,
+                 "--vt-file", path, "--rows", tostring(rows), "--align", opts.align,
+                 "--hint-position", opts.hint_position }
   if not opts.dim then argv[#argv + 1] = "--no-dim" end
-  if #opts.patterns > 0 then
-    argv[#argv + 1] = "--patterns"
-    argv[#argv + 1] = table.concat(opts.patterns, ",")
+  local patterns = args.patterns or (#opts.patterns > 0 and table.concat(opts.patterns, ",")) or ""
+  local flags = {
+    ["--patterns"] = patterns,
+    ["--main-action"] = pick("main_action"),
+    ["--shift-action"] = pick("shift_action"),
+    ["--ctrl-action"] = pick("ctrl_action"),
+    ["--alt-action"] = pick("alt_action"),
+    ["--copy-command"] = pick("copy_command"),
+    ["--keyboard-layout"] = opts.keyboard_layout,
+    ["--alphabet"] = opts.alphabet,
+    ["--hint-style"] = opts.hint_style,
+    ["--highlight-style"] = opts.highlight_style,
+  }
+  for flag, value in pairs(flags) do
+    if value ~= nil and value ~= "" then
+      argv[#argv + 1] = flag
+      argv[#argv + 1] = value
+    end
   end
   for _, re in ipairs(opts.extra) do
     argv[#argv + 1] = "--extra"
     argv[#argv + 1] = re
-  end
-  for flag, value in pairs{ ["--copy-command"] = opts.copy_command, ["--alphabet"] = opts.alphabet,
-                            ["--hint-style"] = opts.hint_style, ["--highlight-style"] = opts.highlight_style } do
-    if value ~= "" then
-      argv[#argv + 1] = flag
-      argv[#argv + 1] = value
-    end
   end
   return argv
 end
@@ -125,7 +156,15 @@ function M.setup(user)
     name = "rex_fingers",
     title = "Fingers: Copy by Hint",
     keywords = "copy hint path url sha tmux-fingers quick select",
-    run = function(ctx)
+    args = {
+      patterns = "string?",
+      main_action = "string?",
+      shift_action = "string?",
+      ctrl_action = "string?",
+      alt_action = "string?",
+      copy_command = "string?",
+    },
+    run = function(ctx, args)
       if not ctx.block_id then error("Fingers: no focused pane", 0) end
       local window_id, rect = locate(ctx.session_id, ctx.block_id)
       local layer, err = rex.session.new_layer{
@@ -137,7 +176,7 @@ function M.setup(user)
           flavor = terminal .. ".shell",
           label = "fingers",
           options = {
-            command = command(opts, ctx),
+            command = command(opts, ctx, args),
             shell = opts.binary ~= "" and "none" or nil,
             exit = { on_completion = true },
           },

@@ -6,6 +6,7 @@
 //
 //	rex-fingers show --session SESSION --block BLOCK [flags]
 //	rex-fingers patterns
+//	rex-fingers layouts
 package main
 
 import (
@@ -15,16 +16,25 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/xeind/rex-fingers/internal/hints"
 	"github.com/xeind/rex-fingers/internal/patterns"
 	"github.com/xeind/rex-fingers/internal/rexcli"
 	"github.com/xeind/rex-fingers/internal/screen"
 	"github.com/xeind/rex-fingers/internal/ui"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
+
+// The special action values, as in tmux-fingers.
+const (
+	actionCopy  = ":copy:"
+	actionPaste = ":paste:"
+	actionOpen  = ":open:"
+)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -41,6 +51,16 @@ func main() {
 		for _, n := range patterns.Names() {
 			fmt.Printf("%-18s %s\n", n, patterns.Builtin[n])
 		}
+	case "layouts":
+		names := make([]string, 0, len(hints.Layouts))
+		for n := range hints.Layouts {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			a, _ := hints.Alphabet(n)
+			fmt.Printf("%-20s %s\n", n, a)
+		}
 	case "version":
 		fmt.Println(version)
 	default:
@@ -50,29 +70,72 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: rex-fingers show --session ID --block ID [--patterns a,b] [--extra RE] [--copy-command CMD] [--alphabet S] [--align top|bottom]\n       rex-fingers patterns\n       rex-fingers version")
+	fmt.Fprintln(os.Stderr, `usage: rex-fingers show --session ID --block ID [flags]
+       rex-fingers patterns
+       rex-fingers layouts
+       rex-fingers version
+
+flags of show:
+  --vt-file FILE          the pane's VT capture; read and deleted
+  --rows N                the pane's row count, with --vt-file
+  --patterns a,b          built-in pattern names; empty means all
+  --extra RE              an extra pattern; repeatable
+  --main-action ACTION    on a hint; default :copy:
+  --shift-action ACTION   on Shift+hint; default :paste:
+  --ctrl-action ACTION    on Ctrl+hint; default :open:
+  --alt-action ACTION     on Alt+hint; default none
+  --copy-command CMD      what :copy: runs; default pbcopy, wl-copy, xclip, or xsel
+  --keyboard-layout NAME  qwerty, colemak, dvorak, ...; see layouts
+  --alphabet LETTERS      hint letters, overrides the layout
+  --hint-position left|right
+  --hint-style SGR        default 1;38;5;0;48;5;12
+  --highlight-style SGR   default 1;38;5;12
+  --no-dim                keep non-matches at full brightness
+  --align top|bottom      rows to keep when the overlay is shorter
+
+An ACTION is :copy:, :paste:, :open:, or a shell command that reads the
+match on stdin with MODIFIER and HINT in its environment. Every pick is
+copied to the clipboard first, as in tmux-fingers.`)
 }
 
 func show(args []string) error {
 	fs := flag.NewFlagSet("show", flag.ContinueOnError)
-	session := fs.String("session", "", "session ID of the pane to read")
-	block := fs.String("block", "", "block ID of the pane to read")
-	names := fs.String("patterns", "", "comma-separated built-in pattern names; empty means all")
+	session := fs.String("session", "", "")
+	block := fs.String("block", "", "")
+	vtFile := fs.String("vt-file", "", "")
+	rows := fs.Int("rows", 0, "")
+	names := fs.String("patterns", "", "")
 	var extra multiFlag
-	fs.Var(&extra, "extra", "an extra regular expression; repeatable")
-	copyCmd := fs.String("copy-command", "", "command that reads the text to copy on stdin; defaults to pbcopy, wl-copy, or xclip")
-	alphabet := fs.String("alphabet", "", "letters used for hints")
-	align := fs.String("align", "bottom", "edge of the pane to keep when the overlay is shorter: top or bottom")
-	hintStyle := fs.String("hint-style", "", "SGR parameters for hints, such as 1;30;43")
-	highlightStyle := fs.String("highlight-style", "", "SGR parameters for the rest of a match, such as 1;33;4")
-	noDim := fs.Bool("no-dim", false, "keep the screen at full brightness instead of dimming non-matches")
-	vtFile := fs.String("vt-file", "", "file holding the pane's VT capture; it is deleted after reading. Without it the pane is read through the rex CLI")
-	rows := fs.Int("rows", 0, "the pane's row count, used with --vt-file")
+	fs.Var(&extra, "extra", "")
+	mainAction := fs.String("main-action", actionCopy, "")
+	shiftAction := fs.String("shift-action", actionPaste, "")
+	ctrlAction := fs.String("ctrl-action", actionOpen, "")
+	altAction := fs.String("alt-action", "", "")
+	copyCmd := fs.String("copy-command", "", "")
+	layout := fs.String("keyboard-layout", "", "")
+	alphabet := fs.String("alphabet", "", "")
+	hintPosition := fs.String("hint-position", "left", "")
+	hintStyle := fs.String("hint-style", "", "")
+	highlightStyle := fs.String("highlight-style", "", "")
+	noDim := fs.Bool("no-dim", false, "")
+	align := fs.String("align", "bottom", "")
+	fs.Usage = usage
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *session == "" || *block == "" {
 		return fmt.Errorf("--session and --block are required")
+	}
+	if *hintPosition != "left" && *hintPosition != "right" {
+		return fmt.Errorf("--hint-position must be left or right")
+	}
+	letters := *alphabet
+	if letters == "" && *layout != "" {
+		a, ok := hints.Alphabet(*layout)
+		if !ok {
+			return fmt.Errorf("unknown keyboard layout %q; see rex-fingers layouts", *layout)
+		}
+		letters = a
 	}
 	pane := rexcli.Pane{Session: *session, Block: *block}
 	ui.Timing = timing
@@ -106,11 +169,12 @@ func show(args []string) error {
 	}
 	scr := screen.Parse(vt, size.Rows)
 	overlay := ui.New(scr, set, ui.Options{
-		Alphabet: *alphabet,
-		Align:    *align,
-		Style:    ui.Style{Hint: *hintStyle, Highlight: *highlightStyle},
-		NoDim:    *noDim,
-		Timeout:  1500 * time.Millisecond,
+		Alphabet:     letters,
+		Align:        *align,
+		Style:        ui.Style{Hint: *hintStyle, Highlight: *highlightStyle},
+		NoDim:        *noDim,
+		HintPosition: *hintPosition,
+		Timeout:      1500 * time.Millisecond,
 	})
 
 	timing("parsed")
@@ -128,15 +192,40 @@ func show(args []string) error {
 	if sel.Cancelled || sel.Target == nil {
 		return nil
 	}
-	text := sel.Target.Text
+
+	action := *mainAction
 	switch sel.Modifier {
 	case ui.Shift:
-		return pane.Write(text)
+		action = *shiftAction
 	case ui.Ctrl:
-		return openTarget(text)
-	default:
-		return copyText(text, *copyCmd)
+		action = *ctrlAction
+	case ui.Alt:
+		action = *altAction
 	}
+	return runAction(action, sel, pane, *copyCmd)
+}
+
+// runAction copies the match, then performs the action for the modifier:
+// nothing more for :copy:, typing for :paste:, the system opener for
+// :open:, or a shell command with the match on its standard input.
+func runAction(action string, sel ui.Selection, pane rexcli.Pane, copyCmd string) error {
+	text := sel.Target.Text
+	copyErr := copyText(text, copyCmd)
+	switch action {
+	case "", actionCopy:
+		return copyErr
+	case actionPaste:
+		return pane.Write(text)
+	case actionOpen:
+		return openTarget(text)
+	}
+	cmd := exec.Command("sh", "-c", action)
+	cmd.Stdin = strings.NewReader(text)
+	cmd.Dir = pane.Pwd()
+	cmd.Env = append(os.Environ(), "MODIFIER="+sel.Modifier.String(), "HINT="+sel.Target.Hint)
+	cmd.Stdout = nil
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 var started = time.Now()

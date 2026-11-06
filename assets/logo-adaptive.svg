@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1254 1254" role="img" aria-labelledby="title desc">
+  <title id="title">rex-fingers mark, adaptive</title>
+  <desc id="desc">A rounded dinosaur arm shaped like the letter F with two small claws, drawn in the page's text color so it suits light and dark modes.</desc>
+  <style>
+    .mark { fill: currentColor; }
+    @media (prefers-color-scheme: dark) { .mark { fill: #ffffff; } }
+    @media (prefers-color-scheme: light) { .mark { fill: #000000; } }
+  </style>
+  <g class="mark">
+    <path d="M 356,483 C 322,456 323,405 351,375 C 375,350 400,347 425,348 C 439,348 447,324 469,304 C 509,261 552,243 589,257 C 621,267 627,284 654,282 C 722,280 775,262 831,273 C 909,285 960,326 970,371 C 985,427 940,463 877,470 C 811,478 727,470 675,473 C 633,475 617,498 611,533 C 606,552 615,566 639,565 C 690,562 748,553 789,575 C 827,596 845,625 836,656 C 827,691 797,712 756,715 L 637,716 C 609,716 600,733 596,760 C 589,806 609,868 603,918 C 596,973 553,1005 486,1006 C 399,1008 340,975 319,921 C 302,879 310,826 313,777 L 326,655 C 285,641 272,603 292,570 C 301,551 320,541 344,533 Z"/>
+    <path d="M910 369 C925 348 946 350 961 363 C973 374 984 403 973 417 C962 430 932 416 915 403 C903 395 903 381 910 369Z"/>
+    <path d="M779 633 C790 616 809 616 821 627 C835 638 847 663 838 677 C829 690 800 677 785 666 C774 658 771 646 779 633Z"/>
+  </g>
+</svg>

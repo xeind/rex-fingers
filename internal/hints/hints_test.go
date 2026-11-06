@@ -28,6 +28,24 @@ func TestGenerateIsPrefixFree(t *testing.T) {
 	}
 }
 
+func TestAlphabetStripsReservedLetters(t *testing.T) {
+	a, ok := Alphabet("qwerty")
+	if !ok || a != DefaultAlphabet {
+		t.Fatalf("qwerty: got %q", a)
+	}
+	for _, r := range "cimqn" {
+		for name := range Layouts {
+			a, _ := Alphabet(name)
+			if strings.ContainsRune(a, r) {
+				t.Fatalf("%s keeps reserved letter %c", name, r)
+			}
+		}
+	}
+	if _, ok := Alphabet("nope"); ok {
+		t.Fatal("unknown layout accepted")
+	}
+}
+
 func TestGenerateKeepsMostHintsShort(t *testing.T) {
 	hs := Generate(DefaultAlphabet, 22)
 	singles := 0

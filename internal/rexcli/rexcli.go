@@ -72,6 +72,22 @@ func (p Pane) Write(text string) error {
 	return p.call("write", string(args), nil)
 }
 
+// Pwd returns the working directory the pane's shell last reported, or
+// an empty string.
+func (p Pane) Pwd() string {
+	var r struct {
+		Pwd string `json:"pwd"`
+	}
+	if err := p.call("pwd", "", &r); err != nil {
+		return ""
+	}
+	pwd := strings.TrimPrefix(r.Pwd, "file://")
+	if i := strings.Index(pwd, "/"); i > 0 {
+		pwd = pwd[i:]
+	}
+	return pwd
+}
+
 // Focus gives the pane focus in the session.
 func (p Pane) Focus() error {
 	_, err := run("focus", "-s", p.Session, p.Block)

@@ -58,7 +58,29 @@ type Match struct {
 
 // Set is a compiled group of patterns.
 type Set struct {
-	exprs []*regexp.Regexp
+	exprs  []*regexp.Regexp
+	checks []func(text string, start, end int) bool
+}
+
+// checks are tests a regular expression cannot express, by pattern name.
+// A match that fails its check is dropped.
+var checks = map[string]func(text string, start, end int) bool{
+	// Rust and C++ scope operators such as Pane::Annotate look like a
+	// compressed address. A real one has a digit and does not touch a
+	// word character on either side; \b cannot say that before a colon.
+	"ipv6": func(text string, start, end int) bool {
+		if start > 0 && isWord(text[start-1]) {
+			return false
+		}
+		if end < len(text) && isWord(text[end]) {
+			return false
+		}
+		return strings.ContainsAny(text[start:end], "0123456789")
+	},
+}
+
+func isWord(c byte) bool {
+	return c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // Compile builds a Set from built-in names and extra expressions. An empty
@@ -78,6 +100,7 @@ func Compile(names []string, extra []string) (*Set, error) {
 			return nil, fmt.Errorf("pattern %s: %w", n, err)
 		}
 		s.exprs = append(s.exprs, re)
+		s.checks = append(s.checks, checks[n])
 	}
 	for i, src := range extra {
 		re, err := regexp.Compile(src)
@@ -85,6 +108,7 @@ func Compile(names []string, extra []string) (*Set, error) {
 			return nil, fmt.Errorf("extra pattern %d: %w", i, err)
 		}
 		s.exprs = append(s.exprs, re)
+		s.checks = append(s.checks, nil)
 	}
 	return &s, nil
 }
@@ -93,9 +117,12 @@ func Compile(names []string, extra []string) (*Set, error) {
 // resolved in favor of the leftmost, then the longest, match.
 func (s *Set) Find(text string) []Match {
 	var all []Match
-	for _, re := range s.exprs {
+	for i, re := range s.exprs {
 		mi := re.SubexpIndex("match")
 		for _, loc := range re.FindAllStringSubmatchIndex(text, -1) {
+			if check := s.checks[i]; check != nil && !check(text, loc[0], loc[1]) {
+				continue
+			}
 			m := Match{Start: loc[0], End: loc[1], CopyStart: loc[0], CopyEnd: loc[1]}
 			if mi > 0 && loc[2*mi] >= 0 {
 				m.CopyStart, m.CopyEnd = loc[2*mi], loc[2*mi+1]

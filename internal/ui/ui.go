@@ -34,7 +34,22 @@ const (
 	Plain Modifier = iota
 	Shift
 	Ctrl
+	Alt
 )
+
+// String names the modifier as tmux-fingers does in the MODIFIER
+// environment variable.
+func (m Modifier) String() string {
+	switch m {
+	case Shift:
+		return "shift"
+	case Ctrl:
+		return "ctrl"
+	case Alt:
+		return "alt"
+	}
+	return "main"
+}
 
 // Selection is what the user picked, or Cancelled.
 type Selection struct {
@@ -59,6 +74,9 @@ type Options struct {
 	// NoDim keeps the screen at full brightness instead of dimming
 	// everything that is not a match.
 	NoDim bool
+	// HintPosition puts the hint over the start ("left") or the end
+	// ("right") of the match.
+	HintPosition string
 	// Timeout bounds the wait for the overlay to reach its final size.
 	Timeout time.Duration
 }
@@ -97,6 +115,9 @@ func New(scr screen.Screen, set *patterns.Set, opts Options) *Overlay {
 	}
 	if opts.Align == "" {
 		opts.Align = "bottom"
+	}
+	if opts.HintPosition == "" {
+		opts.HintPosition = "left"
 	}
 	if opts.Timeout == 0 {
 		opts.Timeout = 1500 * time.Millisecond
@@ -254,21 +275,36 @@ func (o *Overlay) draw() {
 		line := o.scr.Lines[t.Row]
 		col := line.Column(t.Cell)
 		fmt.Fprintf(&b, "\x1b[%d;%dH", row+1, col+1)
-		// The hint covers the first cells of the match; the rest of the
-		// match is drawn highlighted. Widths are kept so nothing shifts.
-		hintCells := 0
-		covered := 0
-		for hintCells < len(t.Hint) && covered < t.Span {
-			hintCells += line.Cells[t.Cell+covered].Width
-			covered++
-		}
-		fmt.Fprintf(&b, "\x1b[0m\x1b[%sm%s", o.opts.Style.Hint, t.Hint)
-		for p := len(t.Hint); p < hintCells; p++ {
-			b.WriteByte(' ')
-		}
-		fmt.Fprintf(&b, "\x1b[0m\x1b[%sm", o.opts.Style.Highlight)
-		for _, c := range line.Cells[t.Cell+covered : t.Cell+t.Span] {
-			b.WriteRune(c.Rune)
+		// The hint covers the first or last cells of the match; the rest
+		// of the match is drawn highlighted. Widths are kept so nothing
+		// shifts.
+		hintCells, covered := 0, 0
+		if o.opts.HintPosition == "right" {
+			for hintCells < len(t.Hint) && covered < t.Span {
+				hintCells += line.Cells[t.Cell+t.Span-1-covered].Width
+				covered++
+			}
+			fmt.Fprintf(&b, "\x1b[0m\x1b[%sm", o.opts.Style.Highlight)
+			for _, c := range line.Cells[t.Cell : t.Cell+t.Span-covered] {
+				b.WriteRune(c.Rune)
+			}
+			fmt.Fprintf(&b, "\x1b[0m\x1b[%sm%s", o.opts.Style.Hint, t.Hint)
+			for p := len(t.Hint); p < hintCells; p++ {
+				b.WriteByte(' ')
+			}
+		} else {
+			for hintCells < len(t.Hint) && covered < t.Span {
+				hintCells += line.Cells[t.Cell+covered].Width
+				covered++
+			}
+			fmt.Fprintf(&b, "\x1b[0m\x1b[%sm%s", o.opts.Style.Hint, t.Hint)
+			for p := len(t.Hint); p < hintCells; p++ {
+				b.WriteByte(' ')
+			}
+			fmt.Fprintf(&b, "\x1b[0m\x1b[%sm", o.opts.Style.Highlight)
+			for _, c := range line.Cells[t.Cell+covered : t.Cell+t.Span] {
+				b.WriteRune(c.Rune)
+			}
 		}
 		b.WriteString("\x1b[0m")
 	}
@@ -297,6 +333,11 @@ func (o *Overlay) handle(k []byte) (Selection, bool) {
 		return Selection{}, false
 	}
 	c := k[0]
+	mod := Plain
+	// Alt sends an escape before the letter; a lone escape leaves.
+	if c == 0x1b && len(k) == 2 && k[1] >= 'a' && k[1] <= 'z' {
+		c, mod = k[1], Alt
+	}
 	switch {
 	case c == 0x1b || c == 0x03 || c == 'q':
 		return Selection{Cancelled: true}, true
@@ -306,7 +347,6 @@ func (o *Overlay) handle(k []byte) (Selection, bool) {
 		}
 		return Selection{}, false
 	}
-	mod := Plain
 	var letter byte
 	switch {
 	case c >= 'a' && c <= 'z':
