@@ -68,7 +68,7 @@ pane. The action:
    with no run on record, reads it (`paneSpec.recover`). When the pane's
    text equals the painted text, the old capture moves under the new
    paths, the modes come from the file, and `\x1b8` precedes `Begin`.
-   Otherwise the old files go. `press` and plain `restore` take the
+   Otherwise it deletes the old files. `press` and plain `restore` take the
    modes from the file too, since the Lua flags carry what was read from
    the painted frame.
 
@@ -156,11 +156,11 @@ every one while the mode is active.
 
 Stale hints: `draw --begin` as above, then `rex do rex_fingers_cancel -s
 $S -b $B`. The pane must show no hint letters and `modes` must report 7
-and 25 set. Only the restore tells: a second draw paints the same frame
-whether or not it recovered the first run. Take `--rows` and `--cols`
-from the block's `size` method; a headless pane is not always 80x24.
-Capture to a new file each time: a capture written over the first run's
-path is the painted frame, and `recover` refuses it.
+and 25 set. Only the restore tells, since a second draw paints the same
+frame whether or not it recovered the first run. Take `--rows` and
+`--cols` from the block's `size` method; a headless pane is not always
+80x24. Capture to a new file each time. A capture written over the first
+run's path is the painted frame, and `recover` refuses it.
 
 Window scope is testable the same way with two panes: `rex split -s $S
 -b $B --split=below --focus=false --json` gives a second block, each gets

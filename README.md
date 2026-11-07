@@ -389,8 +389,8 @@ Dim everything that is not a match, so the hints stand out. Set it to
 `default: false`
 
 Show the picked match in reverse video for 150 ms before the pane comes
-back, as a sign that it was copied. Rex has no API for its own copy
-animation, so this is the plugin's. It delays the pane by that much.
+back, as feedback that it was copied. Rex has no API for its own copy
+animation. The pane comes back 150 ms later than without it.
 
 ```lua
 flash = true,
@@ -525,10 +525,10 @@ not catch, including a failed capture.
 
 **Hint letters stayed in the pane.** With `overlay = "pane"`, a config
 reload or an app restart while the hints are up ends the key mode without
-putting the pane back. Press the key again, or `Escape`: the program keeps
-a record of what it drew, and when the pane still shows that, it restores
-the pane from the capture it took before drawing. If the pane has changed
-since, the record is dropped and letters on rows that did not change stay
+putting the pane back. Press the key again, or `Escape`. The program keeps
+a record of what it drew. When the pane still shows that, it puts the pane
+back from the capture it took before drawing. If the pane has changed
+since, it drops the record, and letters on rows that did not change stay
 until something redraws them, such as `clear`.
 
 **Run it from a script.** `rex do rex_fingers -b BLOCK` opens the overlay on
