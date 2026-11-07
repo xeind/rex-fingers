@@ -64,7 +64,7 @@ The command palette lists it as **Fingers: Copy by Hint**.
 | `url` | `https://example.com/x?y=1`, `git@github.com:a/b.git` | the URL |
 | `markdown-url` | `[docs](https://example.com/docs)` | the URL only |
 | `email` | `someone@example.com` | the address |
-| `sha` | `deadbeefcafe1234` | the hash |
+| `sha` | `deadbeefcafe1234` | the hash; needs a digit and must stand alone, so `feedback` is not one |
 | `uuid` | `3b241101-e2bb-4255-8caf-4136c566a962` | the UUID |
 | `hex` | `0x7ffee3` | the number |
 | `color` | `#c6b18e` | the color |
@@ -161,7 +161,10 @@ fingers.setup{
   hint_style = "1;38;5;0;48;5;12",
   highlight_style = "1;38;5;12",
   dim = true,
+  flash = false,
   align = "bottom",
+  overlay = "float",
+  window_key = false,
 }
 ```
 
@@ -285,7 +288,14 @@ Letters outside the alphabet do nothing while the hints are shown, except
 `default: "left"`
 
 Where the hint sits on the match: over its first characters with `left`, or
-its last with `right`.
+its last with `right`. With `gutter` the hint goes in the blank cells just
+before the match, so the whole match stays readable. A match with no room
+before it, at the left edge or right after another word, gets its hint
+over its first characters as with `left`.
+
+```lua
+hint_position = "gutter",
+```
 
 ### `align`
 
@@ -294,6 +304,53 @@ its last with `right`.
 The floating pane in Rex for Mac is two rows shorter than the pane it
 covers, because of its header. `bottom` keeps the bottom of the pane and
 hides the top two rows. `top` keeps the top and hides the bottom two.
+Only `overlay = "float"` uses it.
+
+### `overlay`
+
+`default: "float"`
+
+Where the hints are drawn.
+
+`float` opens a floating pane over the focused pane and runs `rex-fingers`
+in it. The floating pane is two rows shorter than the pane; see `align`.
+
+`pane` draws the hints into the focused pane itself, so every row stays
+visible. While the hints are up, Rex is in an exclusive key mode named
+`fingers`: the hint letters go to rex-fingers, and every other key does
+nothing. `Escape`, `q`, and `Ctrl+C` leave the mode and put the pane back.
+The mode binds each hint letter plain, and with Shift, Ctrl, or Alt when
+that modifier's action is set. Rex for Mac lists those bindings in a panel
+while the mode is active. Rex has no setting that hides that panel;
+Settings > Terminal > Keyboard > Show key sequence hints covers only the
+panel for a pending prefix such as Ctrl+B. Set `alphabet` to bind fewer
+letters, or leave `shift_action` and `ctrl_action` empty to drop their
+rows.
+
+```lua
+overlay = "pane",
+```
+
+### `window_key`
+
+`default: false`
+
+A second key that hints every terminal pane of the window at once. The
+panes share one set of hints, so a letter names one match wherever it is.
+A pick is copied as usual; a paste goes into the pane you pressed the key
+in, and a shell command runs in that pane's directory. Needs
+`overlay = "pane"`; `setup` errors otherwise.
+
+```lua
+key = "ctrl+b>f",
+window_key = "ctrl+b>shift+f",
+```
+
+The same thing from your own binding is the `scope` argument:
+
+```lua
+rex.bind("ctrl+b>shift+f", "rex_fingers", { scope = "window" })
+```
 
 ### `hint_style` and `highlight_style`
 
@@ -326,6 +383,18 @@ highlight_style = "1;38;5;13",
 
 Dim everything that is not a match, so the hints stand out. Set it to
 `false` to keep the pane at full brightness under the hints.
+
+### `flash`
+
+`default: false`
+
+Show the picked match in reverse video for 150 ms before the pane comes
+back, as a sign that it was copied. Rex has no API for its own copy
+animation, so this is the plugin's. It delays the pane by that much.
+
+```lua
+flash = true,
+```
 
 ## Coming from tmux-fingers
 
@@ -423,12 +492,16 @@ rendered copy of yours and swaps it back out.
 - The floating pane in Rex for Mac has a header, so the overlay is two rows
   shorter than the pane. `align` picks which two rows are hidden.
 - Matches are found on the visible screen only, not in the scrollback.
+- A path or URL the terminal wrapped onto a second row is one match and
+  copies whole; the hint sits on the first row. One case stays split: a
+  row that wrapped right before a wide character, such as an emoji, ends
+  one cell short, so it is not joined and the match stops at the row end.
 - Multi-select and jump mode from tmux-fingers are not ported. Jump has no
   meaning here, because a pane's cursor cannot be moved from outside.
-- Rex for Mac did not put an OSC 52 clipboard write on the system clipboard
-  in testing, so copying runs a local command. On a remote Rex server, set
-  `copy_command` to something that reaches your clipboard, such as an SSH
-  command back to your machine.
+- Copying runs a local command and also writes OSC 52. Rex for Mac build
+  1859 puts the OSC 52 write on the clipboard; earlier builds did not. On
+  a remote Rex server, set `copy_command` to something that reaches your
+  clipboard, such as an SSH command back to your machine.
 - A pane whose program exits within a moment of starting stays open in Rex.
   The program lives at least 400 ms so a fast hint press does not trigger
   that.
@@ -449,6 +522,14 @@ both the pane and the overlay.
 
 **Lua errors.** `rex server logs` shows errors that the config check does
 not catch, including a failed capture.
+
+**Hint letters stayed in the pane.** With `overlay = "pane"`, a config
+reload or an app restart while the hints are up ends the key mode without
+putting the pane back. Press the key again, or `Escape`: the program keeps
+a record of what it drew, and when the pane still shows that, it restores
+the pane from the capture it took before drawing. If the pane has changed
+since, the record is dropped and letters on rows that did not change stay
+until something redraws them, such as `clear`.
 
 **Run it from a script.** `rex do rex_fingers -b BLOCK` opens the overlay on
 that pane. Add `patterns=url` to limit it. Opened this way the app does not

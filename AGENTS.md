@@ -31,8 +31,11 @@ Rex has no API that draws into an existing terminal. The Lua action
 `rex_fingers`:
 
 1. Finds the focused pane's rectangle in `session.view`.
-2. Captures the pane's screen as VT sequences with the terminal block's
-   `format` method and writes it to a temp file.
+2. Captures the pane's screen twice with the terminal block's `format`
+   method, as VT sequences and as text with `unwrap = true`, each to a
+   temp file. The VT redraws the screen row by row; the unwrapped text
+   says which rows the terminal wrapped (`screen.Join`), so a match can
+   span them and copy whole.
 3. Opens a floating layer with that rectangle, running
    `rex-fingers show --session S --block B --vt-file F --rows N ...` with
    `shell = "none"`.
@@ -42,11 +45,53 @@ row, draws the dimmed screen with hints over the matches, reads one hint
 in raw mode, runs the action, and exits. The floating pane closes on exit
 and the program calls `rex focus` on the original pane.
 
+That is `overlay = "float"`. With `overlay = "pane"` there is no floating
+pane. The action:
+
+1. Reads the pane's `modes`, `process`, `pwd`, and `size`, and captures
+   the screen as above.
+2. Runs `rex-fingers draw --begin --pid P --vt-file F --rows N --cols M`
+   through `rex.exec`. The program finds the foreground process's tty
+   and writes the dimmed screen with hints straight into it.
+3. Enters the exclusive key mode `fingers`. Each hint letter is bound
+   there to `rex_fingers_key`, plain and with each modifier whose action
+   is set. The action runs `rex-fingers press --tty T --typed ... --key K`
+   for each key; the program repaints, or on a full hint restores the pane
+   and runs the action. `Escape`, `q`, and `Ctrl+C` run
+   `rex_fingers_cancel`, which runs `rex-fingers restore`.
+4. A run can end without restore: a config reload or an app restart
+   drops the mode, and the hints stay painted. So `draw` writes
+   `$TMPDIR/rex-fingers-<tty>.run.json`: the capture paths, the pane's
+   modes, the letters typed, and the text it painted (`ui.Painted`).
+   `press` rewrites it on a repaint; `restoreAll` deletes it. The next
+   `draw --begin`, or `restore --recover` from the key or cancel action
+   with no run on record, reads it (`paneSpec.recover`). When the pane's
+   text equals the painted text, the old capture moves under the new
+   paths, the modes come from the file, and `\x1b8` precedes `Begin`.
+   Otherwise the old files go. `press` and plain `restore` take the
+   modes from the file too, since the Lua flags carry what was read from
+   the painted frame.
+
+The in-pane subcommands print one JSON object each. `draw` returns the
+tty and the hint count; `press` returns `done`, `typed`, and `paste`.
+
+With the `scope = "window"` argument, bound by `window_key`, the action
+does the same for every terminal block of the window at once. It reads
+them from `layer.blocks[]` with `creator_name == "com.superlogical.terminal"`,
+puts the focused block first, and passes one `--pane pid=,vt=,rows=,cols=,cursor=,wrap=`
+spec per pane. `ui.NewSet` gives the panes one hint list and `ui.PressSet`
+finds a pick across them; `press` returns `pane`, the index of the pane it
+came from. A paste goes to the first pane, the one the key was pressed
+in, and `--cwd` is its directory. The run is stored under every member
+block, and `finish` clears and restores them all.
+
 ## Layout
 
 | Path | Holds |
 | --- | --- |
 | `main.go` | CLI: `show`, `patterns`, `layouts`, `version`; action dispatch |
+| `pane.go` | CLI: `draw`, `press`, `restore` for `overlay = "pane"`, one pane or several `--pane` specs; each prints one JSON object; `runState` and `recover` for a run left without restore |
+| `internal/inpane` | `Begin` and `Restore` sequences, `TTY(pid)` to find the pane's tty |
 | `internal/screen` | VT dump to lines of cells; `Parse`, `Line.Column`, `Line.CellAt` |
 | `internal/patterns` | `Builtin` map, `Compile`, `Set.Find` with leftmost-longest overlap rule |
 | `internal/hints` | `Generate` prefix-free hints; `Layouts` and `Alphabet` |
@@ -90,21 +135,94 @@ at column 80. That is a test artifact. Only a real key press in the app
 sizes the overlay, so layout questions need the user's eyes or a
 screenshot.
 
+The in-pane path needs a client for the key mode, so a headless session
+cannot press a hint. It can draw and restore. `testdata/width-cases.txt`
+holds one line per character-width case:
+
+```sh
+S=$(rex new flag-probe --json | jq -r .session_id); sleep 1.5
+B=$(rex api call -s $S session.view '{}' | jq -r '.windows[0].layers[0].blocks[0].block_id')
+rex send -s $S -b $B 'clear; cat testdata/width-cases.txt' && rex send-key -s $S -b $B enter; sleep 1
+rex block call -s $S -b $B format '{"format":"vt"}' | jq -j .content > /tmp/flag.vt
+P=$(rex block call -s $S -b $B process | jq -r .foreground.pid)
+go build -o bin/rex-fingers . && ./bin/rex-fingers draw --begin --pid $P --vt-file /tmp/flag.vt --rows 24 --cols 80
+rex capture -s $S -b $B --format=text --trim | head -9   # every row: text, space, hint over the slash
+./bin/rex-fingers restore --pid $P --vt-file /tmp/flag.vt --rows 24
+rex kill $S
+```
+
+`rex keymap | grep -c fingers/` counts the mode's bindings; the app lists
+every one while the mode is active.
+
+Stale hints: `draw --begin` as above, then `rex do rex_fingers_cancel -s
+$S -b $B`. The pane must show no hint letters and `modes` must report 7
+and 25 set. Only the restore tells: a second draw paints the same frame
+whether or not it recovered the first run. Take `--rows` and `--cols`
+from the block's `size` method; a headless pane is not always 80x24.
+Capture to a new file each time: a capture written over the first run's
+path is the painted frame, and `recover` refuses it.
+
+Window scope is testable the same way with two panes: `rex split -s $S
+-b $B --split=below --focus=false --json` gives a second block, each gets
+its own capture and `--pane` spec, and one `draw` call takes both. A
+`press --key` with the same specs needs no client. Check that the hint
+letters differ between the panes, that `press` reports the right `pane`
+index and clipboard text, and that both panes are restored. Through Lua,
+`rex do rex_fingers -s $S -b $B scope=window` runs up to the key mode and
+then restores, since a headless session has no client to enter it.
+
 ## Facts the code depends on
 
 - A floating pane in Rex for Mac is two rows shorter than the pane under
   it; `--align` picks which rows to drop. The pane reports 80x24 until the
   app sizes it, so `ui.waitForSize` polls up to 1.5 s and `draw` reruns on
   SIGWINCH.
-- Rex for Mac did not forward OSC 52 to the clipboard in testing. Copy
-  uses `pbcopy` or a Linux equivalent; OSC 52 is written too.
+- Rex for Mac build 1825 did not forward OSC 52 to the clipboard; build
+  1859 does, from a pane's tty, within a second. Copy still uses `pbcopy`
+  or a Linux equivalent and writes OSC 52 too, into the pane's tty in
+  pane mode, so the app's own copy feedback fires when it has one.
 - A pane whose program exits within a moment stays open in Rex. The
   program lives at least 400 ms.
+- `rex do rex_fingers` from the CLI: `rex.client.queue` succeeds and the
+  app refuses the queued `client.mode.enter` after the action returns, so
+  no restore runs and the hints stay. A key press in the app works. The
+  run file above covers the leftover.
+- With autowrap off, the cursor stays on the last column after a row that
+  fills the width, so erase-to-end-of-line there takes that cell. `ui.draw`
+  skips `\x1b[K` on a full row.
 - macOS checks a freshly built binary on first run, about 360 ms. Run it
   once after building before judging latency.
 - `session.view` nests `split.before` and `split.after`, each with `rect`
   in window fractions; a floating layer's layout is relative to its bounds.
 - Go regexp accepts `(?<match>...)`; the tmux-fingers patterns port as is.
+  Tests a regexp cannot state live in `patterns.checks` by name: `sha`
+  and `ipv6` must stand alone and contain a digit, so `feedback` and
+  `Pane::Annotate` are not matches.
+- The `format` method's `unwrap = true` joins soft-wrapped rows; the VT
+  format with it returns fewer rows than the screen has. `inpane.Begin`
+  turns auto-wrap off, so painting must stay row by row from the wrapped
+  VT; the unwrapped text is used only to mark `Line.Wrap`. A row joins the
+  next when it is exactly the pane width and the unwrapped text contains
+  both rows run together. A row wrapped before a wide character ends one
+  cell short and does not join.
+- Rex's emulator is Ghostty. With grapheme clustering (DEC mode 2027) off,
+  it sizes each code point on its own: a regional indicator, half of a
+  flag, is 2 columns, so a flag is 4. `go-runewidth` says 1, and `cellsOf`
+  overrides it. The terminal block's `modes` method reports mode 2027 as
+  `grapheme_cluster`; it was off in every pane measured. With it on,
+  Ghostty would draw a flag pair or a ZWJ sequence as one 2-column cell,
+  and the parser does not handle that yet.
+- A key mode belongs to one client, and a mode binding must name an
+  action; a Lua function binding is not allowed in a mode. The action's
+  `ctx` does not say which key ran it, so each hint key needs its own
+  binding with `{ key, mod }` args. The app lists every binding of the
+  active mode as a row of title plus args, so the mode binds only the
+  letters and modifiers that can be pressed. No setting hides that
+  panel. The user default `Workspace.showsKeySequenceHints` in
+  `com.superlogical.rex`, Settings > Terminal > Keyboard > Show key
+  sequence hints, hides only the panel for a pending prefix such as
+  Ctrl+B, and the app reads it at launch only. Tested 2026-11-07: with
+  it off and the app relaunched, the mode list still shows.
 
 ## Rules
 
