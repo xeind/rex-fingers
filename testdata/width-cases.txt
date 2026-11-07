@@ -1,0 +1,8 @@
+plain /tmp/ascii-x
+中文字 /tmp/cjk-x
+🦖 /tmp/emoji-x
+👨‍👩‍👧 /tmp/zwj-x
+🇵🇭 /tmp/flag-x
+éé /tmp/combining-x
+→★ /tmp/ambiguous-x
+❤️ /tmp/vs16-x
