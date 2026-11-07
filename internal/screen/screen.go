@@ -22,6 +22,9 @@ type Line struct {
 	VT    string
 	Cells []Cell
 	Text  string
+	// Wrap is set when the row is the first part of a longer line the
+	// terminal wrapped, so the next row continues it. See Join.
+	Wrap bool
 }
 
 // Screen is the visible part of a terminal, oldest row first.
@@ -29,13 +32,42 @@ type Screen struct {
 	Lines []Line
 }
 
-// Parse reads a VT dump as the Rex terminal format method returns it, where
-// rows are separated by CR LF, and keeps only the last rows of it.
+// Join marks the rows that the terminal wrapped, using the same screen
+// captured as text with the format method's unwrap option, where each
+// wrapped line is one line. A row joins the next when it is exactly cols
+// wide and some unwrapped line contains the two rows run together; the
+// second test keeps a line that happens to be cols wide from joining
+// whatever follows it. A row that wrapped at a wide character ends one
+// cell short and is not joined.
+func (s *Screen) Join(cols int, unwrapped string) {
+	if cols <= 0 {
+		return
+	}
+	lines := strings.Split(unwrapped, "\n")
+	for r := 0; r+1 < len(s.Lines); r++ {
+		row := &s.Lines[r]
+		if row.Column(len(row.Cells)) != cols || strings.TrimRight(row.Text, " ") != row.Text {
+			continue
+		}
+		pair := row.Text + strings.TrimRight(s.Lines[r+1].Text, " ")
+		if pair == row.Text {
+			continue
+		}
+		for _, u := range lines {
+			if strings.Contains(u, pair) {
+				row.Wrap = true
+				break
+			}
+		}
+	}
+}
+
+// Parse reads a VT dump as the Rex terminal format method returns it, and
+// keeps only the last rows of it. The method writes the scrollback, then
+// every screen row, blank ones included, with CR LF between rows and none
+// after the last, so the last rows parts are exactly the screen.
 func Parse(vt string, rows int) Screen {
 	parts := strings.Split(vt, "\r\n")
-	if n := len(parts); n > 0 && parts[n-1] == "" {
-		parts = parts[:n-1]
-	}
 	if rows > 0 && len(parts) > rows {
 		parts = parts[len(parts)-rows:]
 	}
@@ -107,6 +139,12 @@ func cellsOf(vt string) []Cell {
 			w := runewidth.RuneWidth(r)
 			if w == 0 {
 				continue
+			}
+			// go-runewidth gives a regional indicator, half of a flag,
+			// width 1. Ghostty, Rex's emulator, draws each one 2 columns
+			// wide while grapheme clustering (mode 2027) is off.
+			if r >= 0x1F1E6 && r <= 0x1F1FF {
+				w = 2
 			}
 			cells = append(cells, Cell{r, w})
 			continue
