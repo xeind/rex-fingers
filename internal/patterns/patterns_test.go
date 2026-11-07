@@ -54,6 +54,12 @@ func TestBuiltinPatterns(t *testing.T) {
 		{"Author: Xein <someone@example.com>", []string{"someone@example.com"}},
 		{"go: added golang.org/x/term v0.47.0 and v2.1.318-beta.1", []string{"golang.org/x/term", "v0.47.0", "v2.1.318-beta.1"}},
 		{"nothing here", nil},
+		// sha needs a digit and must stand alone: hex letters inside a
+		// word, or a word spelled only in a to f, are not hashes.
+		{"draft a feedback text to local/codex-findings.md", []string{"local/codex-findings.md"}},
+		{"words deadbeef defaced acceded effaced", nil},
+		{"commit 3f2a9c1 then deadbee1: fix", []string{"3f2a9c1", "deadbee1"}},
+		{"ref abcdef1234567890abcdef1234567890abcdef12 tag", []string{"abcdef1234567890abcdef1234567890abcdef12"}},
 	}
 	for _, c := range cases {
 		if got := copies(t, set, c.line); !equal(got, c.want) {

@@ -68,15 +68,23 @@ var checks = map[string]func(text string, start, end int) bool{
 	// Rust and C++ scope operators such as Pane::Annotate look like a
 	// compressed address. A real one has a digit and does not touch a
 	// word character on either side; \b cannot say that before a colon.
-	"ipv6": func(text string, start, end int) bool {
-		if start > 0 && isWord(text[start-1]) {
-			return false
-		}
-		if end < len(text) && isWord(text[end]) {
-			return false
-		}
-		return strings.ContainsAny(text[start:end], "0123456789")
-	},
+	"ipv6": standaloneWithDigit,
+	// Seven letters from a to f make a word more often than a hash:
+	// "feedbac" in feedback, "defaced", "deadbeef". A real hash stands
+	// alone and, in better than 999 of 1000 cases, has a digit.
+	"sha": standaloneWithDigit,
+}
+
+// standaloneWithDigit holds when the match touches no word character on
+// either side and contains a digit.
+func standaloneWithDigit(text string, start, end int) bool {
+	if start > 0 && isWord(text[start-1]) {
+		return false
+	}
+	if end < len(text) && isWord(text[end]) {
+		return false
+	}
+	return strings.ContainsAny(text[start:end], "0123456789")
 }
 
 func isWord(c byte) bool {
