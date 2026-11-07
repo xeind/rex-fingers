@@ -37,13 +37,12 @@ rex config reload
 rex keymap | grep rex_fingers
 ```
 
-Check: the last command prints one line with `ctrl+b shift+f` and the file
-and line the binding came from.
+Check: the last command prints one line with `alt+f` and the file and line
+the binding came from.
 
 ## 3. Try it
 
-Print something with a path and a URL, then press <kbd>Ctrl-b</kbd>
-<kbd>F</kbd>:
+Print something with a path and a URL, then press <kbd>Alt-f</kbd>:
 
 ```sh
 echo "/usr/local/bin/rex https://example.com"
@@ -56,18 +55,18 @@ If nothing appears, see [Troubleshooting](../README.md#troubleshooting).
 
 ## 4. Pick your key
 
-The default is <kbd>Ctrl-b</kbd> then <kbd>Shift-f</kbd>, the tmux-fingers
-default on the tmux prefix. Any Rex key works:
+The default is <kbd>Alt-f</kbd>. Any Rex key or sequence works, including
+tmux-fingers' key on a Ctrl-b prefix:
 
 ```lua
-fingers.setup{ binary = "...", key = "alt+f" }
+fingers.setup{ binary = "...", key = "ctrl+b>shift+f" }
 ```
 
 Or keep your bindings in one place: set `key = false` and bind it yourself.
 
 ```lua
 fingers.setup{ binary = "...", key = false }
-rex.bind("ctrl+b>shift+f", "rex_fingers")
+rex.bind("alt+f", "rex_fingers")
 ```
 
 Check: `rex config reload`, then `rex keymap | grep rex_fingers` shows the
@@ -130,7 +129,7 @@ Check: Alt+hint on a path opens it in a new tab.
 
 ## 8. Limit or extend the patterns
 
-All nineteen built-in patterns are on by default. To keep only some:
+Every built-in pattern except `digit` is on by default. To keep only some:
 
 ```lua
 patterns = { "path", "file-line", "url" },
@@ -151,13 +150,15 @@ expression is invalid. Otherwise print a matching line and press the key.
 Bindings can pass arguments that override the setup for one run:
 
 ```lua
-rex.bind("ctrl+b>u", "rex_fingers", { patterns = "url,markdown-url" })
-rex.bind("ctrl+b>g", "rex_fingers", { patterns = "git-status,diff,sha" })
-rex.bind("ctrl+b>o", "rex_fingers", { patterns = "file-line,path", main_action = "xargs -I{} rex run -- nvim {}" })
+rex.bind("alt+u", "rex_fingers", { patterns = "url,markdown-url" })
+rex.bind("alt+g", "rex_fingers", { patterns = "git-status,diff,sha" })
+rex.bind("alt+o", "rex_fingers", { patterns = "file-line,path", main_action = "xargs -I{} rex run -- nvim {}" })
 ```
 
 The arguments are `patterns`, `main_action`, `shift_action`, `ctrl_action`,
-`alt_action`, and `copy_command`.
+`alt_action`, `copy_command`, and `scope = "window"`. Window scope hints
+every pane of the window; it uses a Rex key mode, and Rex for Mac shows a
+popup listing that mode's keys while it runs.
 
 Check: `rex actions | grep rex_fingers` lists them, and each key shows only
 its own matches.
@@ -186,6 +187,6 @@ fingers.setup{
   alt_action = "xargs -I{} rex run -- nvim {}",
   extra = { [[\bISSUE-\d+\b]] },
 }
-rex.bind("ctrl+b>shift+f", "rex_fingers")
-rex.bind("ctrl+b>u", "rex_fingers", { patterns = "url,markdown-url" })
+rex.bind("alt+f", "rex_fingers")
+rex.bind("alt+u", "rex_fingers", { patterns = "url,markdown-url" })
 ```

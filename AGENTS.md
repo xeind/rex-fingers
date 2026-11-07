@@ -19,7 +19,10 @@ configure, extend, or debug it.
    ```
    `binary` must be an absolute path.
 4. `rex config check`, then `rex config reload`.
-5. Confirm with `rex keymap | grep rex_fingers`.
+5. Confirm with `rex keymap | grep rex_fingers`: `alt+f` by default, and
+   `overlay = "float"`. Pane mode is opt-in because Rex for Mac shows a
+   popup listing the key mode's bindings; the user turned it down
+   2026-11-07.
 
 Every option and its default is in `README.md` under Configuration. A
 walkthrough with a check per step is `docs/CONFIGURING.md`. Unknown option
@@ -71,11 +74,24 @@ pane. The action:
    Otherwise it deletes the old files. `press` and plain `restore` take the
    modes from the file too, since the Lua flags carry what was read from
    the painted frame.
+5. The pane's program may write while the hints are up. Every paint ends
+   with `\x1b8`, so that output lands where the program's cursor was.
+   Lua captures each pane's text (`currents`) before every `press` and
+   `restore` and passes it as `--current-file`, or `current=` in a
+   `--pane` spec. When it differs from the painted text the pane moved on
+   (`paneSpec.checkMoved`): `alignRows` finds the scroll offset, only the
+   rows that still show the frame are repainted (`inpane.RestoreRows`),
+   the cursor is left where the program put it, and `press` ends the run
+   with `changed = true` and no pick. `scripts/test_in_pane.sh` has three
+   cases for it.
 
 The in-pane subcommands print one JSON object each. `draw` returns the
 tty and the hint count; `press` returns `done`, `typed`, and `paste`.
 
-With the `scope = "window"` argument, bound by `window_key`, the action
+The `scope = "window"` argument, bound by `window_key`, always takes the
+in-pane path, whatever `overlay` says: a float covers one pane, and only
+the key mode lets one key reach every pane. So the mode and its actions
+are registered for both overlays. With it, the action
 does the same for every terminal block of the window at once. It reads
 them from `layer.blocks[]` with `creator_name == "com.superlogical.terminal"`,
 puts the focused block first, and passes one `--pane pid=,vt=,rows=,cols=,cursor=,wrap=`
@@ -93,7 +109,7 @@ block, and `finish` clears and restores them all.
 | `pane.go` | CLI: `draw`, `press`, `restore` for `overlay = "pane"`, one pane or several `--pane` specs; each prints one JSON object; `runState` and `recover` for a run left without restore |
 | `internal/inpane` | `Begin` and `Restore` sequences, `TTY(pid)` to find the pane's tty |
 | `internal/screen` | VT dump to lines of cells; `Parse`, `Line.Column`, `Line.CellAt` |
-| `internal/patterns` | `Builtin` map, `Compile`, `Set.Find` with leftmost-longest overlap rule |
+| `internal/patterns` | `Builtin` map, `Default` (all but `digit`), `Weight` per pattern for hint order, `Compile`, `Set.Find` with leftmost-longest overlap rule |
 | `internal/hints` | `Generate` prefix-free hints; `Layouts` and `Alphabet` |
 | `internal/ui` | `Overlay`: raw mode, `draw`, key handling, modifiers |
 | `internal/rexcli` | `Pane.Size`, `Capture`, `Write`, `Pwd`, `Focus` through the `rex` CLI |
@@ -190,6 +206,11 @@ then restores, since a headless session has no client to enter it.
 - With autowrap off, the cursor stays on the last column after a row that
   fills the width, so erase-to-end-of-line there takes that cell. `ui.draw`
   skips `\x1b[K` on a full row.
+- The user's shell is nushell. Its line editor holds the tty in raw mode
+  at the prompt, so output from a background process gets no carriage
+  returns and staircases across the screen. Not a fingers effect; count
+  occurrences, not rows, when a test checks such output. Nushell also
+  renders `echo a b c` as a table.
 - macOS checks a freshly built binary on first run, about 360 ms. Run it
   once after building before judging latency.
 - `session.view` nests `split.before` and `split.after`, each with `rect`
