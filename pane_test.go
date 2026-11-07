@@ -70,6 +70,23 @@ func TestRecoverLeftoverRun(t *testing.T) {
 	}
 }
 
+// A pane that scrolled two rows while the hints were up: the rows that
+// still show the frame are found at the offset, the new output is not.
+func TestAlignRowsFindsTheScroll(t *testing.T) {
+	painted := []string{"$ ls", "atmp/a", "stmp/b", "dtmp/c", "$ ", ""}
+	cur := []string{"stmp/b", "dtmp/c", "$ echo hi", "hi", "$ ", ""}
+	rows := alignRows(cur, painted)
+	if len(rows) != 2 || rows[0] != 2 || rows[1] != 3 {
+		t.Fatalf("rows %v, want {0:2 1:3}", rows)
+	}
+	if rows := alignRows(painted, painted); len(rows) != 5 || rows[1] != 1 {
+		t.Fatalf("unchanged screen: %v", rows)
+	}
+	if rows := alignRows([]string{"x", "y"}, painted); len(rows) != 0 {
+		t.Fatalf("replaced screen: %v", rows)
+	}
+}
+
 func TestShowsPainted(t *testing.T) {
 	scr := screen.Parse("see stmp/a   \r\n\r\n", 3)
 	if !showsPainted(scr, []string{"see stmp/a", "", ""}) {

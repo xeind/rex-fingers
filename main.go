@@ -110,6 +110,11 @@ also take the flags of show that pick and style the hints:
                           pick up a run left on the pane without restore
   --recover               (restore) repaint only if the pane still shows a
                           run left without restore
+  --current-file FILE     (press, restore) the pane's text captured now; if
+                          it differs from what was drawn, the pane wrote
+                          output during the run, so only rows that still
+                          show the hints are repainted and press picks
+                          nothing
   --key a --modifier M    (press) the key; M is main, shift, ctrl, or alt
   --cwd DIR               (press) where an action command runs
   --cursor-visible=B --wraparound=B  the pane's modes before draw --begin

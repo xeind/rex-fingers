@@ -41,6 +41,12 @@ capture() {
   rex block call -s "$S" -b "$B" format '{"format":"text","unwrap":true,"trim":true}' | jq -j .content > "$TXT"
 }
 text() { rex capture -s "$S" -b "$B" --format=text --trim | sed 's/ *$//'; }
+# current writes the pane's text as it is now, what the Lua side passes to
+# press and restore as --current-file, and sets CUR.
+current() {
+  N=$((N + 1)); CUR=/tmp/fingers-test-$$-$N.cur
+  rex block call -s "$S" -b "$B" format '{"format":"text"}' | jq -j .content > "$CUR"
+}
 modes_ok() {
   rex block call -s "$S" -b "$B" modes | jq -e '[.modes[] | select(.number==7 or .number==25) | .set] == [true,true]' >/dev/null
 }
@@ -86,8 +92,10 @@ if begin_case "press a full hint copies and restores"; then
   type_line 'clear; echo /tmp/a; echo /tmp/b'; BEFORE=$(text)
   capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path >/dev/null
   H=$(hint_for tmp/b); pbcopy </dev/null
-  OUT=$($BIN press --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --patterns path --key "$H")
+  current
+  OUT=$($BIN press --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --patterns path --key "$H" --current-file "$CUR")
   check "press reports done" [ "$(echo "$OUT" | jq -r .done)" = true ]
+  check "an unchanged pane is not reported as changed" [ "$(echo "$OUT" | jq -r .changed)" = null ]
   sleep 0.3; check "clipboard holds /tmp/b" [ "$(pbpaste)" = /tmp/b ]
   end_case
 fi
@@ -154,8 +162,10 @@ if begin_case "pane output during the mode, no scroll"; then
   # Something writes to the pane while the hints are up: here the shell
   # echoes a typed command and its output.
   type_line 'echo /tmp/c'
-  BEFORE=$(text | sed 's/^[a-z]\(tmp\/\)/\/\1/')  # what the pane should show: new output, no hints
-  $BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common >/dev/null
+  BEFORE=$(text | sed -E -e 's#(^|[^[:alnum:]/])[a-z](tmp/)#\1/\2#g' -e 's#^[a-z](/dev/)#~\1#')  # what the pane should show: new output, no hints
+  current
+  OUT=$($BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --current-file "$CUR")
+  check "restore reports the change" [ "$(echo "$OUT" | jq -r .changed)" = true ]
   end_case
 fi
 
@@ -163,8 +173,26 @@ if begin_case "pane output during the mode, scrolls"; then
   type_line 'clear; seq 1 '"$((R - 3))"'; echo /tmp/a'
   capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path >/dev/null
   type_line 'echo /tmp/c; echo /tmp/d; echo /tmp/e'
-  BEFORE=$(text | sed 's/^[a-z]\(tmp\/\)/\/\1/')
-  $BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common >/dev/null
+  BEFORE=$(text | sed -E -e 's#(^|[^[:alnum:]/])[a-z](tmp/)#\1/\2#g' -e 's#^[a-z](/dev/)#~\1#')
+  current
+  H=$(hint_for tmp/a)
+  OUT=$($BIN press --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --patterns path --key "${H:-a}" --current-file "$CUR")
+  check "press on a changed pane ends the run without a pick" [ "$(echo "$OUT" | jq -c '[.done,.changed,.pane]')" = '[true,true,null]' ]
+  end_case
+fi
+
+if begin_case "pane output during the mode, a background writer"; then
+  # The pane's shell may be nushell, so the writer is started through sh.
+  type_line "clear; echo /tmp/a; sh -c 'for i in 1 2 3 4 5; do sleep 0.3; echo /tmp/w\$i; done &'" 0.3
+  capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path >/dev/null
+  sleep 2
+  BEFORE=$(text | sed -E -e 's#(^|[^[:alnum:]/])[a-z](tmp/)#\1/\2#g' -e 's#^[a-z](/dev/)#~\1#')
+  current
+  OUT=$($BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --current-file "$CUR")
+  check "restore reports the change" [ "$(echo "$OUT" | jq -r .changed)" = true ]
+  # Counted as occurrences: nushell holds the tty in raw mode at its
+  # prompt, so background output gets no carriage returns and staircases.
+  check "the writer's five lines are on screen" [ "$(text | grep -o 'tmp/w' | wc -l | tr -d ' ')" = 5 ]
   end_case
 fi
 

@@ -40,6 +40,30 @@ func Restore(scr screen.Screen, cursorVisible, wraparound bool) string {
 	return b.String()
 }
 
+// RestoreRows repaints only the screen rows in rows, each from the
+// snapshot row it maps to, and undoes Begin without moving the cursor.
+// It is for a pane that wrote output while the hints were up: the rows
+// that still show hints are put back, the new output is left alone, and
+// the cursor stays where the pane's program put it.
+func RestoreRows(scr screen.Screen, rows map[int]int, cursorVisible, wraparound bool) string {
+	var b strings.Builder
+	for row := 0; row < len(scr.Lines)+len(rows); row++ {
+		src, ok := rows[row]
+		if !ok || src < 0 || src >= len(scr.Lines) {
+			continue
+		}
+		fmt.Fprintf(&b, "\x1b7\x1b[%d;1H\x1b[0m\x1b[2K%s\x1b8", row+1, scr.Lines[src].VT)
+	}
+	b.WriteString("\x1b[0m")
+	if wraparound {
+		b.WriteString("\x1b[?7h")
+	}
+	if cursorVisible {
+		b.WriteString("\x1b[?25h")
+	}
+	return b.String()
+}
+
 // TTY returns the path of the terminal that process pid runs on, such as
 // /dev/ttys003.
 func TTY(pid int) (string, error) {

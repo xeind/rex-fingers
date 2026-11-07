@@ -55,6 +55,14 @@ type paneSpec struct {
 	// recovered is set when the pane still showed a leftover run's hints
 	// and that run's capture now stands in for the new one.
 	recovered bool
+	// currentFile is the pane's text as the caller captured it just now,
+	// for press and restore. Optional. When it differs from the painted
+	// frame the pane wrote output during the run: moved is set and
+	// softRows maps each screen row that still shows the frame to the
+	// snapshot row to repaint it from.
+	currentFile string
+	moved       bool
+	softRows    map[int]int
 }
 
 // runState is what draw leaves beside a pane's capture, so a later call
@@ -158,22 +166,95 @@ func (p *paneSpec) modesFromRun() {
 // showsPainted reports whether the screen's text is the painted frame,
 // row for row, trailing blanks aside.
 func showsPainted(scr screen.Screen, painted []string) bool {
-	if len(painted) == 0 {
+	rows := make([]string, len(scr.Lines))
+	for i, l := range scr.Lines {
+		rows[i] = l.Text
+	}
+	return sameRows(rows, painted)
+}
+
+func sameRows(have, want []string) bool {
+	if len(want) == 0 {
 		return false
 	}
-	for i := 0; i < len(painted) || i < len(scr.Lines); i++ {
-		var have, want string
-		if i < len(scr.Lines) {
-			have = strings.TrimRight(scr.Lines[i].Text, " ")
+	for i := 0; i < len(want) || i < len(have); i++ {
+		var h, w string
+		if i < len(have) {
+			h = strings.TrimRight(have[i], " ")
 		}
-		if i < len(painted) {
-			want = strings.TrimRight(painted[i], " ")
+		if i < len(want) {
+			w = strings.TrimRight(want[i], " ")
 		}
-		if have != want {
+		if h != w {
 			return false
 		}
 	}
 	return true
+}
+
+// current returns the rows of the pane's text as the caller captured it,
+// the last rows of the file, and deletes the file. Nil without one.
+func (p *paneSpec) current() []string {
+	if p.currentFile == "" {
+		return nil
+	}
+	data, err := os.ReadFile(p.currentFile)
+	os.Remove(p.currentFile)
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if p.rows > 0 && len(lines) > p.rows {
+		lines = lines[len(lines)-p.rows:]
+	}
+	return lines
+}
+
+// checkMoved compares the pane's current text with the frame the run
+// painted. When they differ the pane wrote output during the run: moved
+// is set and softRows says which rows can still be put back.
+func (p *paneSpec) checkMoved() {
+	cur := p.current()
+	if cur == nil {
+		return
+	}
+	data, err := os.ReadFile(runFile(p.tty))
+	if err != nil {
+		return
+	}
+	var st runState
+	if json.Unmarshal(data, &st) != nil || sameRows(cur, st.Painted) {
+		return
+	}
+	p.moved = true
+	p.softRows = alignRows(cur, st.Painted)
+}
+
+// alignRows finds how far the pane scrolled, the offset k at which the
+// most non-blank painted rows reappear in the current rows, and returns
+// the screen rows that still show a painted row, mapped to that row's
+// index in the snapshot. Blank rows take no part: they match anywhere.
+func alignRows(cur, painted []string) map[int]int {
+	trim := func(s string) string { return strings.TrimRight(s, " ") }
+	best, bestK := 0, 0
+	for k := 0; k < len(painted); k++ {
+		n := 0
+		for i := 0; i+k < len(painted) && i < len(cur); i++ {
+			if w := trim(painted[i+k]); w != "" && w == trim(cur[i]) {
+				n++
+			}
+		}
+		if n > best {
+			best, bestK = n, k
+		}
+	}
+	rows := map[int]int{}
+	for i := 0; i+bestK < len(painted) && i < len(cur); i++ {
+		if w := trim(painted[i+bestK]); w != "" && w == trim(cur[i]) {
+			rows[i] = i + bestK
+		}
+	}
+	return rows
 }
 
 // parsePaneSpec reads a --pane value: comma-separated key=value pairs
@@ -196,6 +277,8 @@ func parsePaneSpec(s string) (paneSpec, error) {
 			p.vtFile = value
 		case "text":
 			p.textFile = value
+		case "current":
+			p.currentFile = value
 		case "rows":
 			p.rows, err = strconv.Atoi(value)
 		case "cols":
@@ -275,6 +358,7 @@ func paneCommand(name string, args []string) error {
 	fs.IntVar(&r.single.pid, "pid", 0, "")
 	fs.StringVar(&r.single.vtFile, "vt-file", "", "")
 	fs.StringVar(&r.single.textFile, "text-file", "", "")
+	fs.StringVar(&r.single.currentFile, "current-file", "", "")
 	fs.IntVar(&r.single.rows, "rows", 0, "")
 	fs.IntVar(&r.single.cols, "cols", 0, "")
 	fs.BoolVar(&r.single.cursor, "cursor-visible", true, "")
@@ -313,6 +397,7 @@ func paneCommand(name string, args []string) error {
 			}
 		} else {
 			specs[i].modesFromRun()
+			specs[i].checkMoved()
 		}
 	}
 	switch name {
@@ -350,6 +435,9 @@ func (r paneRun) paint(specs []paneSpec, ovs []*ui.Overlay, typed string, begin 
 			b.WriteString(inpane.Begin)
 		}
 		ovs[i].Paint(&b, p.rows, p.cols, typed)
+		// Back to the cursor Begin saved, so output the pane's program
+		// writes while the hints are up lands where it would have anyway.
+		b.WriteString("\x1b8")
 		_, err = tty.WriteString(b.String())
 		tty.Close()
 		if err != nil {
@@ -371,15 +459,31 @@ func restoreAll(specs []paneSpec) error {
 	return first
 }
 
-// restore repaints the pane as it was and deletes its files.
+// restore repaints the pane as it was and deletes its files. A pane that
+// moved on gets back only the rows that still show the frame, and keeps
+// its cursor where its program left it.
 func (p *paneSpec) restore() error {
 	tty, err := p.open()
 	if err == nil {
-		_, err = tty.WriteString(inpane.Restore(p.scr, p.cursor, p.wrap))
+		seq := inpane.Restore(p.scr, p.cursor, p.wrap)
+		if p.moved {
+			seq = inpane.RestoreRows(p.scr, p.softRows, p.cursor, p.wrap)
+		}
+		_, err = tty.WriteString(seq)
 		tty.Close()
 	}
 	p.remove()
 	return err
+}
+
+// anyMoved reports whether a pane of the run wrote output during it.
+func anyMoved(specs []paneSpec) bool {
+	for _, p := range specs {
+		if p.moved {
+			return true
+		}
+	}
+	return false
 }
 
 // saveAll records every pane's run with the frame just painted.
@@ -438,6 +542,16 @@ func (r paneRun) press(specs []paneSpec) error {
 	ovs, err := r.overlays(specs)
 	if err != nil {
 		return err
+	}
+	// Output written during the run means the hints no longer line up
+	// with the screen, so the key is not a pick: the run ends and the
+	// panes get back what still shows the frame.
+	if anyMoved(specs) {
+		result := map[string]any{"done": true, "changed": true}
+		if err := restoreAll(specs); err != nil {
+			result["error"] = err.Error()
+		}
+		return reply(result)
 	}
 	pane, sel, typed, done := ui.PressSet(ovs, k, *r.typed)
 	if !done {
@@ -500,7 +614,7 @@ func (r paneRun) restore(specs []paneSpec) error {
 	if err := restoreAll(specs); err != nil {
 		return err
 	}
-	return reply(map[string]any{"done": true, "panes": len(specs)})
+	return reply(map[string]any{"done": true, "panes": len(specs), "changed": anyMoved(specs)})
 }
 
 // keyBytes turns a key mode binding, a letter and a modifier, into the

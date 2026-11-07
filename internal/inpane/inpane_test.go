@@ -27,6 +27,17 @@ func TestRestoreKeepsModesThatWereOff(t *testing.T) {
 	}
 }
 
+// RestoreRows repaints the given rows around the cursor, which it saves
+// and restores for each, and resets the modes without a final DECRC.
+func TestRestoreRowsLeavesTheCursorAlone(t *testing.T) {
+	scr := screen.Parse("one\r\ntwo\r\nthree", 3)
+	got := RestoreRows(scr, map[int]int{0: 1}, true, false)
+	want := "\x1b7\x1b[1;1H\x1b[0m\x1b[2Ktwo\x1b8\x1b[0m\x1b[?25h"
+	if got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+}
+
 func TestTTYOfThisProcess(t *testing.T) {
 	path, err := TTY(os.Getpid())
 	if err != nil {

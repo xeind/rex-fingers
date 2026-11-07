@@ -20,9 +20,10 @@ local defaults = {
   -- Absolute path of the rex-fingers binary. Empty looks it up on PATH
   -- through the login shell, which is slower to start.
   binary = "",
-  -- Key to bind, or false to bind nothing.
-  key = "ctrl+b>shift+f",
-  -- Built-in pattern names to enable. Empty enables all of them.
+  -- Key to bind, or false to bind nothing. tmux-fingers' key is
+  -- "ctrl+b>shift+f".
+  key = "alt+f",
+  -- Built-in pattern names to enable. Empty enables all but digit.
   patterns = {},
   -- Extra regular expressions, Go syntax.
   extra = {},
@@ -41,7 +42,7 @@ local defaults = {
   -- Hint letters, overriding the layout.
   alphabet = "",
   -- Where the hint sits: "left" or "right" covers that end of the match;
-  -- "gutter" uses the blank cells before it and falls back to "left".
+  -- "gutter" uses the blank cells before it and falls back to "right".
   hint_position = "left",
   -- SGR parameters for the hint letters and the rest of the match. The
   -- defaults name theme palette slots, so they follow the theme.
@@ -54,11 +55,13 @@ local defaults = {
   flash = false,
   -- Which edge of the pane to keep when the floating pane is shorter.
   align = "bottom",
-  -- Where the hints are drawn: "float", a floating pane over the pane, or
-  -- "pane", the pane itself.
+  -- Where the hints are drawn: "float", a floating pane over the pane,
+  -- two rows shorter, or "pane", the pane itself, which puts Rex in a key
+  -- mode and Rex for Mac then shows a popup listing the mode's keys.
   overlay = "float",
   -- Key that hints every pane of the window at once, or false to bind
-  -- nothing. Needs overlay = "pane". A pick pastes into the pane the key
+  -- nothing. Always draws in the panes, whatever overlay says, so Rex for
+  -- Mac shows the key mode's popup. A pick pastes into the pane the key
   -- was pressed in.
   window_key = false,
 }
@@ -96,37 +99,46 @@ end
 
 -- capture writes the pane's screen as VT to a temporary file before the
 -- floating pane opens, so the program draws as soon as it starts.
-local function capture(ctx)
-  local target = { session_id = ctx.session_id, block_id = ctx.block_id }
-  local size, err = rex.block.call(terminal, "size", target)
-  if not size then error(err, 0) end
-  -- dump writes one format call, read in blobs if it is large, to a
-  -- temp file and returns the path.
-  local function dump(format_args)
-    local args = { max_bytes = 983040 }
-    for k, v in pairs(target) do args[k] = v end
-    for k, v in pairs(format_args) do args[k] = v end
-    local r
-    r, err = rex.block.call(terminal, "format", args)
+-- dump writes one format call on a pane, read in blobs if it is large, to
+-- a temp file and returns the path. target holds session_id and block_id.
+local function dump(target, format_args)
+  local args = { session_id = target.session_id, block_id = target.block_id, max_bytes = 983040 }
+  for k, v in pairs(format_args) do args[k] = v end
+  local r, err = rex.block.call(terminal, "format", args)
+  if not r then error(err, 0) end
+  local parts, offset = { r.content }, #r.content
+  while r.id and not r.eof do
+    r, err = rex.block.call(terminal, "blob_read", { session_id = target.session_id, block_id = target.block_id, id = r.id, offset = offset })
     if not r then error(err, 0) end
-    local parts, offset = { r.content }, #r.content
-    while r.id and not r.eof do
-      r, err = rex.block.call(terminal, "blob_read", { session_id = ctx.session_id, block_id = ctx.block_id, id = r.id, offset = offset })
-      if not r then error(err, 0) end
-      parts[#parts + 1] = r.data
-      offset = offset + #r.data
-    end
-    local path = os.tmpname()
-    local f = assert(io.open(path, "w"))
-    f:write(table.concat(parts))
-    f:close()
-    return path
+    parts[#parts + 1] = r.data
+    offset = offset + #r.data
   end
+  local path = os.tmpname()
+  local f = assert(io.open(path, "w"))
+  f:write(table.concat(parts))
+  f:close()
+  return path
+end
+
+local function capture(ctx)
+  local size, err = rex.block.call(terminal, "size", { session_id = ctx.session_id, block_id = ctx.block_id })
+  if not size then error(err, 0) end
   -- The VT dump redraws the screen row by row. The unwrapped text says
   -- which rows the terminal wrapped, so a match can span them.
-  local vt = dump{ format = "vt" }
-  local text = dump{ format = "text", unwrap = true, trim = true }
+  local vt = dump(ctx, { format = "vt" })
+  local text = dump(ctx, { format = "text", unwrap = true, trim = true })
   return vt, text, size
+end
+
+-- currents captures the text of every pane of a run, as it is now, so the
+-- program can tell whether a pane wrote output since the hints went up.
+-- Returns one path per block of the run.
+local function currents(run)
+  local paths = {}
+  for i, id in ipairs(run.blocks) do
+    paths[i] = dump({ session_id = run.session_id, block_id = id }, { format = "text" })
+  end
+  return paths
 end
 
 -- option_flags appends the flags that pick and style the hints and say what
@@ -214,7 +226,7 @@ local function finish(block_id, run, restore)
   state[block_id] = nil
   for _, id in ipairs((run and run.blocks) or {}) do state[id] = nil end
   rex.client.queue("client.mode.exit")
-  if run and restore then exec(run.restore) end
+  if run and restore then exec(run.argv("restore", currents(run))) end
 end
 
 -- recover_pane puts a pane back when a run was left on it without
@@ -263,18 +275,24 @@ local function start_in_pane(opts, ctx, args)
     os.remove(text)
     return { hints = 0 }
   end
-  local function with(sub)
+  -- argv builds a press or restore call; current is the pane's text
+  -- captured now, one path per block.
+  local function argv(sub, current)
     local a = { binary(opts), sub, "--tty", r.tty }
     for _, x in ipairs(tail) do a[#a + 1] = x end
+    if current and current[1] then
+      a[#a + 1] = "--current-file"
+      a[#a + 1] = current[1]
+    end
     return a
   end
-  local run = { press = with("press"), restore = with("restore"), typed = "", busy = false,
-                origin = ctx.block_id, blocks = { ctx.block_id } }
+  local run = { argv = argv, typed = "", busy = false,
+                session_id = ctx.session_id, origin = ctx.block_id, blocks = { ctx.block_id } }
   -- Without a client there is no key mode to read the hints with, so the
   -- pane is put back at once.
   local ok, qerr = pcall(rex.client.queue, "client.mode.enter", { name = "fingers" })
   if not ok then
-    exec(run.restore)
+    exec(argv("restore"))
     error("Fingers: " .. tostring(qerr), 0)
   end
   state[ctx.block_id] = run
@@ -353,21 +371,24 @@ local function start_in_window(opts, ctx, args)
     cleanup()
     return { hints = 0 }
   end
-  -- Later calls name each pane by the tty draw found, not by pid.
-  local function with(sub)
+  -- Later calls name each pane by the tty draw found, not by pid, and
+  -- carry each pane's text captured now when current is given.
+  local function argv(sub, current)
     local a = { binary(opts), sub }
     for i, s in ipairs(specs) do
+      local spec = s:gsub("^pid=%d+", "tty=" .. r.panes[i].tty)
+      if current and current[i] then spec = spec .. ",current=" .. current[i] end
       a[#a + 1] = "--pane"
-      a[#a + 1] = (s:gsub("^pid=%d+", "tty=" .. r.panes[i].tty))
+      a[#a + 1] = spec
     end
     for _, x in ipairs(tail) do a[#a + 1] = x end
     return a
   end
-  local run = { press = with("press"), restore = with("restore"), typed = "", busy = false,
-                origin = ctx.block_id, blocks = members }
+  local run = { argv = argv, typed = "", busy = false,
+                session_id = ctx.session_id, origin = ctx.block_id, blocks = members }
   local ok, qerr = pcall(rex.client.queue, "client.mode.enter", { name = "fingers" })
   if not ok then
-    exec(run.restore)
+    exec(argv("restore"))
     error("Fingers: " .. tostring(qerr), 0)
   end
   for _, id in ipairs(members) do state[id] = run end
@@ -383,9 +404,6 @@ function M.setup(user)
   end
   if opts.overlay ~= "float" and opts.overlay ~= "pane" then
     error("rex-fingers: overlay must be \"float\" or \"pane\"", 0)
-  end
-  if opts.window_key and opts.overlay ~= "pane" then
-    error("rex-fingers: window_key needs overlay = \"pane\"", 0)
   end
 
   rex.action{
@@ -407,7 +425,9 @@ function M.setup(user)
       if scope ~= "pane" and scope ~= "window" then
         error("Fingers: scope must be \"pane\" or \"window\"", 0)
       end
-      if opts.overlay == "pane" then
+      -- Window scope always draws in the panes: a float covers one pane,
+      -- and only the key mode lets one key reach every pane.
+      if opts.overlay == "pane" or scope == "window" then
         -- A run is left behind when the client goes away in the mode,
         -- such as an app restart. Forget it here; draw --begin picks it
         -- up from the state the program kept, if the pane still shows
@@ -416,7 +436,6 @@ function M.setup(user)
         if scope == "window" then return start_in_window(opts, ctx, args) end
         return start_in_pane(opts, ctx, args)
       end
-      if scope == "window" then error("Fingers: scope \"window\" needs overlay = \"pane\"", 0) end
       local window_id, rect = locate(ctx.session_id, ctx.block_id)
       local layer, err = rex.session.new_layer{
         session_id = ctx.session_id,
@@ -445,7 +464,9 @@ function M.setup(user)
     rex.bind(opts.window_key, "rex_fingers", { scope = "window" })
   end
 
-  if opts.overlay == "pane" then
+  -- The in-pane mode and its actions, used by overlay = "pane" and by
+  -- window scope under either overlay.
+  do
     rex.action{
       name = "rex_fingers_key",
       title = "Fingers: Hint Key",
@@ -462,7 +483,7 @@ function M.setup(user)
         -- during the previous one is dropped rather than raced.
         if run.busy then return end
         run.busy = true
-        local r, err = exec(run.press, "--typed", run.typed, "--key", args.key, "--modifier", args.mod)
+        local r, err = exec(run.argv("press", currents(run)), "--typed", run.typed, "--key", args.key, "--modifier", args.mod)
         run.busy = false
         if not r then
           finish(ctx.block_id, run, true)
