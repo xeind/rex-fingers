@@ -51,6 +51,23 @@ func TestSetSharesHintsAndRoutesPress(t *testing.T) {
 	}
 }
 
+// The heavier pattern gets the first hint, whatever the screen order: a
+// file:line below a path takes "a".
+func TestHeavierPatternGetsFirstHint(t *testing.T) {
+	set, err := patterns.Compile([]string{"path", "file-line"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := New(screen.Parse("/tmp/a\r\nmain.go:3", 0), set, Options{Alphabet: "asdf"})
+	got := map[string]string{}
+	for _, tg := range o.Targets() {
+		got[tg.Text] = tg.Hint
+	}
+	if got["main.go:3"] != "a" || got["/tmp/a"] != "s" {
+		t.Fatalf("hints %v", got)
+	}
+}
+
 // A path the terminal wrapped is one target: the full text, one segment
 // per row, the hint on the first row, and a press copies the whole path.
 func TestWrappedMatchIsOneTarget(t *testing.T) {
@@ -105,6 +122,21 @@ func TestPaintedText(t *testing.T) {
 		if len(got) != 2 || got[0] != c.want || got[1] != "" {
 			t.Errorf("%s typed %q: got %q, want [%q \"\"]", c.position, c.typed, got, c.want)
 		}
+	}
+	// Gutter with no blank before the match covers its end instead, unless
+	// the match reaches the right edge, where it covers the start.
+	tight := &Overlay{scr: screen.Parse("ab/tmp/x /tmp/y", 0), opts: Options{HintPosition: "gutter"},
+		targets: []Target{{Hint: "s", Row: 0, Cell: 2, Span: 6}, {Hint: "d", Row: 0, Cell: 9, Span: 6}}}
+	var tb strings.Builder
+	tight.Paint(&tb, 1, 15, "")
+	if got := tight.Painted(); got[0] != "ab/tmp/sd/tmp/y" {
+		t.Errorf("gutter fallback: got %q", got)
+	}
+	edge := &Overlay{scr: screen.Parse("ab/tmp/x", 0), opts: Options{HintPosition: "gutter"},
+		targets: []Target{{Hint: "s", Row: 0, Cell: 2, Span: 6}}}
+	edge.Paint(&tb, 1, 8, "")
+	if got := edge.Painted(); got[0] != "abstmp/x" {
+		t.Errorf("gutter fallback at the right edge: got %q", got)
 	}
 	// A hint over a wide character is padded to its width.
 	wide := &Overlay{scr: screen.Parse("日本 /tmp/x", 0), targets: []Target{{Hint: "s", Row: 0, Cell: 0, Span: 2}},

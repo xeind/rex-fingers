@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -165,6 +166,7 @@ func assignHints(ovs []*Overlay, set *patterns.Set) {
 	type found struct {
 		o *Overlay
 		t Target
+		w int
 	}
 	var all []found
 	for _, o := range ovs {
@@ -203,11 +205,14 @@ func assignHints(ovs []*Overlay, set *patterns.Set) {
 					Text: text[m.CopyStart:m.CopyEnd],
 					Row:  segs[0].Row, Cell: segs[0].Cell, Span: segs[0].Span,
 					Segments: segs,
-				}})
+				}, m.Weight})
 			}
 			first = last + 1
 		}
 	}
+	// The heaviest patterns, the ones picked most, get the first and
+	// shortest hints; within a weight, screen order.
+	sort.SliceStable(all, func(i, j int) bool { return all[i].w > all[j].w })
 	byText := map[string]int{}
 	order := []string{}
 	for _, f := range all {
@@ -416,13 +421,24 @@ func (p placement) uncovered(s Segment) (from, to int) {
 	return
 }
 
-// place decides where the hint of t goes for the hint position.
+// place decides where the hint of t goes for the hint position. Gutter
+// with no room before the match falls back to the end of the match, where
+// it hides less than the start would, unless the match reaches the right
+// edge; then the start it is.
 func (o *Overlay) place(t Target) placement {
-	if start, ok := o.gutter(t); ok {
-		return placement{t.Row, start, len(t.Hint), len(t.Hint)}
-	}
 	segs := t.segments()
-	if o.opts.HintPosition == "right" {
+	position := o.opts.HintPosition
+	if position == "gutter" {
+		if start, ok := o.gutter(t); ok {
+			return placement{t.Row, start, len(t.Hint), len(t.Hint)}
+		}
+		last := segs[len(segs)-1]
+		position = "right"
+		if o.scr.Lines[last.Row].Column(last.Cell+last.Span) >= o.cols {
+			position = "left"
+		}
+	}
+	if position == "right" {
 		last := segs[len(segs)-1]
 		line := o.scr.Lines[last.Row]
 		width, covered := 0, 0

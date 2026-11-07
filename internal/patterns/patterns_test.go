@@ -38,7 +38,7 @@ func TestBuiltinPatterns(t *testing.T) {
 		{"clone git@github.com:xeind/rex-fingers.git", []string{"git@github.com:xeind/rex-fingers.git"}},
 		{"commit deadbeefcafe1234 by me", []string{"deadbeefcafe1234"}},
 		{"id 3b241101-e2bb-4255-8caf-4136c566a962 ok", []string{"3b241101-e2bb-4255-8caf-4136c566a962"}},
-		{"addr 0x7ffee3 and 10.0.0.42 port 8080", []string{"0x7ffee3", "10.0.0.42", "8080"}},
+		{"addr 0x7ffee3 and 10.0.0.42 port 8080", []string{"0x7ffee3", "10.0.0.42"}},
 		{"\tmodified:   src/main.go", []string{"src/main.go"}},
 		{"--- a/internal/ui/ui.go", []string{"internal/ui/ui.go"}},
 		{"pod nginx-deployment-66b6c48dd5-7xb2r running", []string{"nginx-deployment-66b6c48dd5-7xb2r"}},
@@ -65,6 +65,26 @@ func TestBuiltinPatterns(t *testing.T) {
 		if got := copies(t, set, c.line); !equal(got, c.want) {
 			t.Errorf("%q: want %q, got %q", c.line, c.want, got)
 		}
+	}
+}
+
+// digit is out of the default set and in by name, and matches carry the
+// weight of their pattern.
+func TestDefaultLeavesOutDigit(t *testing.T) {
+	set, err := Compile(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := copies(t, set, "port 8080 open"); len(got) != 0 {
+		t.Fatalf("digit matched by default: %v", got)
+	}
+	set, err = Compile([]string{"digit", "path"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms := set.Find("port 8080 at /tmp/x")
+	if len(ms) != 2 || ms[0].Weight != Weight["digit"] || ms[1].Weight != Weight["path"] {
+		t.Fatalf("matches %+v", ms)
 	}
 }
 

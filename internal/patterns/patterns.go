@@ -49,17 +49,49 @@ func Names() []string {
 	return names
 }
 
+// Default returns the pattern names a run uses when none are given: every
+// built-in except digit. Four-digit numbers are on most screens, are
+// rarely what the user wants, and would take the shortest hints.
+func Default() []string {
+	var names []string
+	for _, n := range Names() {
+		if n != "digit" {
+			names = append(names, n)
+		}
+	}
+	return names
+}
+
+// Weight ranks a pattern for hint assignment. The first and shortest hints
+// go to the heaviest patterns, the ones a user picks most often. A pattern
+// not listed weighs 1; an extra pattern weighs 2, since the user wrote it.
+var Weight = map[string]int{
+	"file-line":    5,
+	"path":         4,
+	"quoted-path":  4,
+	"url":          4,
+	"markdown-url": 4,
+	"sha":          3,
+	"git-status":   3,
+	"diff":         3,
+	"digit":        0,
+}
+
+const extraWeight = 2
+
 // Match is one thing found on a line: the byte range of the whole match
-// and of the part to copy.
+// and of the part to copy, and the weight of the pattern that found it.
 type Match struct {
 	Start, End         int
 	CopyStart, CopyEnd int
+	Weight             int
 }
 
 // Set is a compiled group of patterns.
 type Set struct {
-	exprs  []*regexp.Regexp
-	checks []func(text string, start, end int) bool
+	exprs   []*regexp.Regexp
+	checks  []func(text string, start, end int) bool
+	weights []int
 }
 
 // checks are tests a regular expression cannot express, by pattern name.
@@ -95,7 +127,7 @@ func isWord(c byte) bool {
 // names list selects every built-in pattern.
 func Compile(names []string, extra []string) (*Set, error) {
 	if len(names) == 0 {
-		names = Names()
+		names = Default()
 	}
 	var s Set
 	for _, n := range names {
@@ -107,8 +139,13 @@ func Compile(names []string, extra []string) (*Set, error) {
 		if err != nil {
 			return nil, fmt.Errorf("pattern %s: %w", n, err)
 		}
+		w, ok := Weight[n]
+		if !ok {
+			w = 1
+		}
 		s.exprs = append(s.exprs, re)
 		s.checks = append(s.checks, checks[n])
+		s.weights = append(s.weights, w)
 	}
 	for i, src := range extra {
 		re, err := regexp.Compile(src)
@@ -117,6 +154,7 @@ func Compile(names []string, extra []string) (*Set, error) {
 		}
 		s.exprs = append(s.exprs, re)
 		s.checks = append(s.checks, nil)
+		s.weights = append(s.weights, extraWeight)
 	}
 	return &s, nil
 }
@@ -131,7 +169,7 @@ func (s *Set) Find(text string) []Match {
 			if check := s.checks[i]; check != nil && !check(text, loc[0], loc[1]) {
 				continue
 			}
-			m := Match{Start: loc[0], End: loc[1], CopyStart: loc[0], CopyEnd: loc[1]}
+			m := Match{Start: loc[0], End: loc[1], CopyStart: loc[0], CopyEnd: loc[1], Weight: s.weights[i]}
 			if mi > 0 && loc[2*mi] >= 0 {
 				m.CopyStart, m.CopyEnd = loc[2*mi], loc[2*mi+1]
 			}
