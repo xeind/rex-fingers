@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="field" cx="1024" cy="0" r="1448" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffea01"/>
+      <stop offset=".1" stop-color="#ffc601"/>
+      <stop offset=".2" stop-color="#ff9e01"/>
+      <stop offset=".3" stop-color="#ff7815"/>
+      <stop offset=".4" stop-color="#ff644d"/>
+      <stop offset=".5" stop-color="#f3658f"/>
+      <stop offset=".6" stop-color="#df68cd"/>
+      <stop offset=".7" stop-color="#ca68fe"/>
+      <stop offset=".8" stop-color="#a095fe"/>
+      <stop offset=".9" stop-color="#69beff"/>
+      <stop offset="1" stop-color="#00e7fe"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#field)"/>
+</svg>

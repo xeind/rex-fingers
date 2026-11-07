@@ -99,7 +99,7 @@ block, and `finish` clears and restores them all.
 | `internal/rexcli` | `Pane.Size`, `Capture`, `Write`, `Pwd`, `Focus` through the `rex` CLI |
 | `lua/rex-fingers/init.lua` | `setup(opts)`, the action, rect lookup, capture |
 | `docs/CONFIGURING.md` | user walkthrough |
-| `assets/` | `logo-claw-tile-rex.svg`, the README logo; `logo-claw-tile-*.svg`, the claw on tiles in colours sampled from the Rex app icon; `social-preview.png`, 1280x640 for GitHub; `logo-claw-black.svg` and `logo-claw-white.svg`, the bare mark; older logo SVGs: tile, transparent mark, black, white, adaptive; 512 px PNGs rendered with `qlmanage -t -s 512` |
+| `assets/` | `rex-fingers.icon`, the Icon Composer document: `claw.svg` as a matte Liquid Glass layer over `field.svg`, Rex's radial gradient sampled from the app icon, and `claw-dark.svg`, the claw filled with that gradient, shown only in Dark; `logo-claw-glass-rex.png` and `logo-claw-glass-rex-dark.png`, its exports at 512 px, the README logo (regenerate with File > Export, Appearance All, 2x); `logo-claw-black.svg` and `logo-claw-white.svg`, the bare mark; `social-preview.png`, the dark render padded to 1280x640 for GitHub |
 
 ## Commands
 
