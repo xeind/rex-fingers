@@ -83,7 +83,14 @@ pane. The action:
    rows that still show the frame are repainted (`inpane.RestoreRows`),
    the cursor is left where the program put it, and `press` ends the run
    with `changed = true` and no pick. `scripts/test_in_pane.sh` has three
-   cases for it.
+   cases for it. Rows that scrolled into the scrollback keep the hints:
+   no tty write reaches the scrollback, and the terminal block has no
+   method that edits it. Painting on the alternate screen would keep the
+   scrollback clean but discard what the program prints during the run,
+   so the limit stays and the README states it. Reproduce with a pane
+   that prints a line every 300 ms: draw once scrollback exists, wait
+   3 s, cancel, and `rex capture --format=text` shows hint letters on the
+   rows that scrolled off.
 
 The in-pane subcommands print one JSON object each. `draw` returns the
 tty and the hint count; `press` returns `done`, `typed`, and `paste`.

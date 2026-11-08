@@ -168,10 +168,14 @@ maps every option.
   outside in Rex.
 - On a remote Rex server, set `copy_command` to something that reaches
   your clipboard, such as `ssh laptop pbcopy`.
-- With `overlay = "pane"`, a program that writes to the pane while the
-  hints are up ends the run on the next key: nothing is picked, rows that
-  still show hints are put back, and the new output stays. Hint letters
-  on a row the program overwrote stay until something redraws that row.
+- With `overlay = "pane"` or window scope, a program that writes to the
+  pane while the hints are up ends the run on the next key: nothing is
+  picked, rows that still show hints are put back, and the new output
+  stays. Hint letters on a row the program overwrote stay until something
+  redraws that row. Rows that scrolled into the scrollback keep their hint
+  letters for good, since nothing written to a terminal reaches its
+  scrollback. A float never writes to the pane, so it leaves nothing
+  behind.
 
 ## Troubleshooting
 
@@ -190,6 +194,12 @@ scope, a config reload or an app restart while the hints were up ended
 the key mode without putting the pane back.
 Press the key again, or `Escape`. The program restores the pane from the
 capture it took, as long as the pane still shows what it drew.
+
+**Hint letters stayed in the scrollback.** The pane printed while the
+hints were up, such as a running build or Claude Code, and the painted
+rows scrolled off the screen before `Escape`. No restore can reach them;
+clearing the pane's scrollback removes them. On a pane that is printing,
+use the float key, not window scope.
 
 **Lua errors.** `rex server logs` shows errors the config check misses.
 
