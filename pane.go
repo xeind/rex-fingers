@@ -55,7 +55,7 @@ type paneSpec struct {
 	// recovered is set when the pane still showed a leftover run's hints
 	// and that run's capture now stands in for the new one.
 	recovered bool
-	// currentFile is the pane's text as the caller captured it just now,
+	// currentFile is the pane's VT as the caller captured it just now,
 	// for press and restore. Optional. When it differs from the painted
 	// frame the pane wrote output during the run: moved is set and
 	// softRows maps each screen row that still shows the frame to the
@@ -192,8 +192,10 @@ func sameRows(have, want []string) bool {
 	return true
 }
 
-// current returns the rows of the pane's text as the caller captured it,
-// the last rows of the file, and deletes the file. Nil without one.
+// current returns the text of the pane's screen rows from the VT the
+// caller captured, and deletes the file. Nil without one. The text format
+// drops blank rows at the foot of the screen, so its last rows would reach
+// into the scrollback; the VT keeps every screen row.
 func (p *paneSpec) current() []string {
 	if p.currentFile == "" {
 		return nil
@@ -203,9 +205,10 @@ func (p *paneSpec) current() []string {
 	if err != nil {
 		return nil
 	}
-	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-	if p.rows > 0 && len(lines) > p.rows {
-		lines = lines[len(lines)-p.rows:]
+	scr := screen.Parse(string(data), p.rows)
+	lines := make([]string, len(scr.Lines))
+	for i, l := range scr.Lines {
+		lines[i] = l.Text
 	}
 	return lines
 }

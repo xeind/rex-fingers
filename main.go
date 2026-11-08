@@ -110,7 +110,7 @@ also take the flags of show that pick and style the hints:
                           pick up a run left on the pane without restore
   --recover               (restore) repaint only if the pane still shows a
                           run left without restore
-  --current-file FILE     (press, restore) the pane's text captured now; if
+  --current-file FILE     (press, restore) the pane's VT captured now; if
                           it differs from what was drawn, the pane wrote
                           output during the run, so only rows that still
                           show the hints are repainted and press picks

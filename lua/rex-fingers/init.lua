@@ -130,13 +130,14 @@ local function capture(ctx)
   return vt, text, size
 end
 
--- currents captures the text of every pane of a run, as it is now, so the
+-- currents captures every pane of a run as VT, as it is now, so the
 -- program can tell whether a pane wrote output since the hints went up.
--- Returns one path per block of the run.
+-- The text format drops blank rows at the foot of the screen; the VT keeps
+-- every screen row. Returns one path per block of the run.
 local function currents(run)
   local paths = {}
   for i, id in ipairs(run.blocks) do
-    paths[i] = dump({ session_id = run.session_id, block_id = id }, { format = "text" })
+    paths[i] = dump({ session_id = run.session_id, block_id = id }, { format = "vt" })
   end
   return paths
 end

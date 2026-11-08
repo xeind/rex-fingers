@@ -87,6 +87,28 @@ func TestAlignRowsFindsTheScroll(t *testing.T) {
 	}
 }
 
+// The pane's capture runs from the top of the scrollback to the last
+// screen row, blank rows included. A screen with scrollback above and
+// blank rows below, unchanged since the paint, has not moved, so restore
+// repaints all of it.
+func TestCheckMovedReadsTheScreenRows(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	tty := "/dev/ttys-test"
+	p := paneSpec{tty: tty, rows: 5}
+	if err := p.saveRun([]string{"atmp/a", "$", "", "", ""}, ""); err != nil {
+		t.Fatal(err)
+	}
+	p.currentFile = filepath.Join(t.TempDir(), "current.vt")
+	vt := "1\r\n2\r\n3\r\n\x1b[2m\x1b[1;38;5;0;48;5;9ma\x1b[0;2mtmp/a\x1b[0m\r\n$ \r\n\r\n\r\n"
+	if err := os.WriteFile(p.currentFile, []byte(vt), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p.checkMoved()
+	if p.moved {
+		t.Fatalf("unchanged screen read as moved; rows %v", p.softRows)
+	}
+}
+
 func TestShowsPainted(t *testing.T) {
 	scr := screen.Parse("see stmp/a   \r\n\r\n", 3)
 	if !showsPainted(scr, []string{"see stmp/a", "", ""}) {

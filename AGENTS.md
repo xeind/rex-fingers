@@ -76,9 +76,10 @@ pane. The action:
    the painted frame.
 5. The pane's program may write while the hints are up. Every paint ends
    with `\x1b8`, so that output lands where the program's cursor was.
-   Lua captures each pane's text (`currents`) before every `press` and
+   Lua captures each pane as VT (`currents`) before every `press` and
    `restore` and passes it as `--current-file`, or `current=` in a
-   `--pane` spec. When it differs from the painted text the pane moved on
+   `--pane` spec; VT, not text, see the facts below. When the screen's
+   text differs from the painted text the pane moved on
    (`paneSpec.checkMoved`): `alignRows` finds the scroll offset, only the
    rows that still show the frame are repainted (`inpane.RestoreRows`),
    the cursor is left where the program put it, and `press` ends the run
@@ -233,6 +234,12 @@ then restores, since a headless session has no client to enter it.
   next when it is exactly the pane width and the unwrapped text contains
   both rows run together. A row wrapped before a wide character ends one
   cell short and does not join.
+- The `format` method returns the scrollback and the screen. Its VT keeps
+  every screen row; its text drops blank rows at the foot of the screen,
+  so the last `rows` lines of the text reach into the scrollback. A
+  current capture compared against the painted frame must be VT: from
+  text, `alignRows` found no match on a half-empty screen with
+  scrollback, and restore repainted nothing.
 - Rex's emulator is Ghostty. With grapheme clustering (DEC mode 2027) off,
   it sizes each code point on its own: a regional indicator, half of a
   flag, is 2 columns, so a flag is 4. `go-runewidth` says 1, and `cellsOf`
