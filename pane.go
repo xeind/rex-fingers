@@ -546,19 +546,16 @@ func (r paneRun) press(specs []paneSpec) error {
 	if err != nil {
 		return err
 	}
-	// Output written during the run means the hints no longer line up
-	// with the screen, so the key is not a pick: the run ends and the
-	// panes get back what still shows the frame.
-	if anyMoved(specs) {
-		result := map[string]any{"done": true, "changed": true}
-		if err := restoreAll(specs); err != nil {
-			result["error"] = err.Error()
-		}
-		return reply(result)
-	}
+	// A pane may have written output during the run, such as a spinner or
+	// a timer. A letter the user sees on screen still names the same match
+	// in the capture, so the key still picks. Only the drawing changes: no
+	// repaint over the new output, no flash where the match may have moved.
+	moved := anyMoved(specs)
 	pane, sel, typed, done := ui.PressSet(ovs, k, *r.typed)
 	if !done {
-		if typed != *r.typed {
+		// The run file keeps the frame that is on screen, so a later
+		// restore finds its rows.
+		if typed != *r.typed && !moved {
 			if err := r.paint(specs, ovs, typed, false); err != nil {
 				return err
 			}
@@ -568,7 +565,7 @@ func (r paneRun) press(specs []paneSpec) error {
 		}
 		return reply(map[string]any{"done": false, "typed": typed})
 	}
-	if sel.Target != nil && *r.opts.flash > 0 {
+	if sel.Target != nil && *r.opts.flash > 0 && !moved {
 		if tty, err := specs[pane].open(); err == nil {
 			ovs[pane].Flash(tty, sel.Target)
 			tty.Close()
@@ -577,6 +574,9 @@ func (r paneRun) press(specs []paneSpec) error {
 	}
 	restoreErr := restoreAll(specs)
 	result := map[string]any{"done": true}
+	if moved {
+		result["changed"] = true
+	}
 	if sel.Cancelled || sel.Target == nil {
 		if restoreErr != nil {
 			result["error"] = restoreErr.Error()

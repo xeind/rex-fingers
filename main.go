@@ -113,8 +113,8 @@ also take the flags of show that pick and style the hints:
   --current-file FILE     (press, restore) the pane's VT captured now; if
                           it differs from what was drawn, the pane wrote
                           output during the run, so only rows that still
-                          show the hints are repainted and press picks
-                          nothing
+                          show the hints are repainted and press does not
+                          repaint the frame
   --key a --modifier M    (press) the key; M is main, shift, ctrl, or alt
   --cwd DIR               (press) where an action command runs
   --cursor-visible=B --wraparound=B  the pane's modes before draw --begin

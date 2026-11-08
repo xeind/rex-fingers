@@ -88,8 +88,12 @@ pane. The action:
    text differs from the painted text the pane moved on
    (`paneSpec.checkMoved`): `alignRows` finds the scroll offset, only the
    rows that still show the frame are repainted (`inpane.RestoreRows`),
-   the cursor is left where the program put it, and `press` ends the run
-   with `changed = true` and no pick. `scripts/test_in_pane.sh` has three
+   and the cursor is left where the program put it. `press` still picks:
+   a letter on screen names the same match in the capture. It skips the
+   repaint after a first letter, which would cover the new output, and
+   the flash, and reports `changed = true`. Before, it refused every pick
+   on a moved pane, and in window scope one pane with a spinner, such as
+   Claude Code, blocked every copy. `scripts/test_in_pane.sh` has four
    cases for it. Rows that scrolled into the scrollback keep the hints:
    no tty write reaches the scrollback, and the terminal block has no
    method that edits it. Painting on the alternate screen would keep the

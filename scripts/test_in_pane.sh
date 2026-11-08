@@ -175,9 +175,30 @@ if begin_case "pane output during the mode, scrolls"; then
   type_line 'echo /tmp/c; echo /tmp/d; echo /tmp/e'
   BEFORE=$(text | sed -E -e 's#(^|[^[:alnum:]/])[a-z](tmp/)#\1/\2#g' -e 's#^[a-z](/dev/)#~\1#')
   current
-  H=$(hint_for tmp/a)
+  H=$(hint_for tmp/a); pbcopy </dev/null
   OUT=$($BIN press --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --patterns path --key "${H:-a}" --current-file "$CUR")
-  check "press on a changed pane ends the run without a pick" [ "$(echo "$OUT" | jq -c '[.done,.changed,.pane]')" = '[true,true,null]' ]
+  check "press on a changed pane still picks" [ "$(echo "$OUT" | jq -c '[.done,.changed,.pane]')" = '[true,true,0]' ]
+  sleep 0.3; check "clipboard holds /tmp/a" [ "$(pbpaste)" = /tmp/a ]
+  end_case
+fi
+
+if begin_case "a status line rewritten in place, two-letter hint picks"; then
+  # A spinner or a timer, as Claude Code shows, changes the pane on every
+  # press. Two letters: the first must not repaint over the new output.
+  # Under sh: nushell shows only the last statement's echo, as a table.
+  W='echo /tmp/a /tmp/b /tmp/c /tmp/d; i=0; while [ $i -lt 40 ]; do printf "\rworking %d" $i; i=$((i+1)); sleep 0.2; done'
+  type_line "clear; sh -c '$W'" 0.6
+  capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path --alphabet as >/dev/null
+  H=$(hint_for mp/d); check "hint has two letters" [ "${#H}" = 2 ]
+  sleep 0.5; current; pbcopy </dev/null
+  OUT=$($BIN press --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --patterns path --alphabet as --key "$(echo "$H" | cut -c1)" --current-file "$CUR")
+  check "first letter: not done" [ "$(echo "$OUT" | jq -c '[.done,.typed]')" = "[false,\"$(echo "$H" | cut -c1)\"]" ]
+  sleep 0.5; current
+  OUT=$($BIN press --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --patterns path --alphabet as --typed "$(echo "$H" | cut -c1)" --key "$(echo "$H" | cut -c2)" --current-file "$CUR")
+  check "second letter: picked" [ "$(echo "$OUT" | jq -c '[.done,.pane]')" = '[true,0]' ]
+  sleep 0.3; check "clipboard holds /tmp/d" [ "$(pbpaste)" = /tmp/d ]
+  sleep 8 # the loop ends, so the pane's text settles
+  BEFORE=$(text | sed -E -e 's#(^|[^[:alnum:]/])[a-z]{1,2}(tmp/)#\1/\2#g' -e 's#^[a-z](/dev/)#~\1#')
   end_case
 fi
 

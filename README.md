@@ -169,11 +169,11 @@ maps every option.
   outside in Rex.
 - On a remote Rex server, set `copy_command` to something that reaches
   your clipboard, such as `ssh laptop pbcopy`.
-- With `overlay = "pane"` or window scope, a program that writes to the
-  pane while the hints are up ends the run on the next key: nothing is
-  picked, rows that still show hints are put back, and the new output
-  stays. Hint letters on a row the program overwrote stay until something
-  redraws that row. Rows that scrolled into the scrollback keep their hint
+- With `overlay = "pane"` or window scope, a program may write to the
+  pane while the hints are up. A hint still copies; the hints stop
+  narrowing as you type, and the new output stays. When the run ends,
+  rows that still show hints are put back. Hint letters on a row the
+  program overwrote stay until something redraws that row. Rows that scrolled into the scrollback keep their hint
   letters for good, since nothing written to a terminal reaches its
   scrollback. A float never writes to the pane, so it leaves nothing
   behind.
