@@ -97,6 +97,26 @@ local function locate(session_id, block_id)
   error("rex-fingers: pane not found in the session", 0)
 end
 
+-- open_floats returns the fingers floating panes in the window that holds
+-- block_id, which may be one of them.
+local function open_floats(session_id, block_id)
+  local view, err = rex.session.view{ session_id = session_id }
+  if not view then error(err, 0) end
+  for _, w in ipairs(view.windows or {}) do
+    local ids, found = {}, false
+    for _, layer in ipairs(w.layers or {}) do
+      for _, b in ipairs(layer.blocks or {}) do
+        if b.block_id == block_id then found = true end
+        if layer.kind ~= "tiled" and b.label == "fingers" and b.creator_name == terminal then
+          ids[#ids + 1] = b.block_id
+        end
+      end
+    end
+    if found then return ids end
+  end
+  return {}
+end
+
 -- capture writes the pane's screen as VT to a temporary file before the
 -- floating pane opens, so the program draws as soon as it starts.
 -- dump writes one format call on a pane, read in blobs if it is large, to
@@ -425,6 +445,15 @@ function M.setup(user)
       local scope = args.scope or "pane"
       if scope ~= "pane" and scope ~= "window" then
         error("Fingers: scope must be \"pane\" or \"window\"", 0)
+      end
+      -- The key toggles: with hints already up in a float, it sends that
+      -- float Escape, which closes it and gives the pane focus back.
+      local floats = open_floats(ctx.session_id, ctx.block_id)
+      if #floats > 0 then
+        for _, id in ipairs(floats) do
+          rex.block.call(terminal, "write", { session_id = ctx.session_id, block_id = id, data = "\27" })
+        end
+        return { closed = #floats }
       end
       -- Window scope always draws in the panes: a float covers one pane,
       -- and only the key mode lets one key reach every pane.

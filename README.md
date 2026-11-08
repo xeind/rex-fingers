@@ -57,6 +57,7 @@ gets a one or two letter hint. Type the hint.
 | <kbd>Ctrl</kbd> + hint | open it with `open` or `xdg-open` |
 | <kbd>Alt</kbd> + hint | nothing until you set `alt_action` |
 | <kbd>q</kbd>, <kbd>Esc</kbd>, <kbd>Ctrl-c</kbd> | leave |
+| <kbd>Alt-f</kbd> again | leave, with `overlay = "float"` |
 
 The same text gets the same hint wherever it appears. With more matches than
 letters, some hints are two letters.

@@ -48,6 +48,12 @@ row, draws the dimmed screen with hints over the matches, reads one hint
 in raw mode, runs the action, and exits. The floating pane closes on exit
 and the program calls `rex focus` on the original pane.
 
+The key toggles. The action first looks for a floating block labeled
+`fingers` in the window (`open_floats`). If it finds one, it writes Escape
+into it through the block's `write` method and returns. The program takes
+that as a cancel, so the float closes and focus returns as above. Without
+this, each press captured the focused float and stacked another over it.
+
 That is `overlay = "float"`. With `overlay = "pane"` there is no floating
 pane. The action:
 
