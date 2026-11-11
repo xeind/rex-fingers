@@ -266,8 +266,9 @@ then restores, since a headless session has no client to enter it.
   panel. The user default `Workspace.showsKeySequenceHints` in
   `com.superlogical.rex`, Settings > Terminal > Keyboard > Show key
   sequence hints, hides only the panel for a pending prefix such as
-  Ctrl+B, and the app reads it at launch only. Tested 2026-11-07: with
-  it off and the app relaunched, the mode list still shows.
+  Ctrl+B, and the app reads it at launch only. Tested 2026-11-07 on
+  build 1825 and 2026-11-11 on build 1932: with it off and the app
+  relaunched, the mode list still shows.
 
 ## Rules
 
