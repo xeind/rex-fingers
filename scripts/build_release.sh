@@ -7,8 +7,10 @@
 #   sh scripts/build_release.sh v0.3.0
 #
 # Writes dist/rex-fingers-TAG-OS-ARCH.tar.gz per platform, dist/SHA256SUMS,
-# and dist/NOTES.md, the commit subjects since the previous tag. Edit the
-# notes before publishing.
+# and dist/NOTES.md. The notes are docs/releases/TAG.md when that file
+# exists; write it before you tag. Without it they are the commit subjects
+# since the previous tag, to edit before publishing. GitHub shows each line
+# break of the notes, so keep a paragraph on one line.
 #
 # Go stamps the version from git, so HEAD must carry the tag and the tree
 # must be clean; an untracked file is enough for Go to stamp TAG+dirty.
@@ -36,16 +38,22 @@ for PLATFORM in $PLATFORMS; do
   [ "$STAMPED" = "$TAG" ] || fail "the $PLATFORM binary reports $STAMPED, not $TAG"
   cp -R lua README.md LICENSE stage/rex-fingers/
   # COPYFILE_DISABLE keeps macOS tar from adding ._ files for extended
-  # attributes.
-  COPYFILE_DISABLE=1 tar -czf "dist/rex-fingers-$TAG-$OS-$ARCH.tar.gz" -C stage rex-fingers \
+  # attributes. The owner flags keep the builder's user name out of the
+  # tarball.
+  COPYFILE_DISABLE=1 tar --uid 0 --gid 0 --uname '' --gname '' \
+    -czf "dist/rex-fingers-$TAG-$OS-$ARCH.tar.gz" -C stage rex-fingers \
     || fail "tar for $PLATFORM failed"
 done
 rm -rf stage
 
 (cd dist && shasum -a 256 ./*.tar.gz | sed 's|  \./|  |' > SHA256SUMS) || fail "the checksums failed"
 
-PREVIOUS=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null)
-git log --format='- %s' ${PREVIOUS:+"$PREVIOUS.."}"$TAG" > dist/NOTES.md
+if [ -f "docs/releases/$TAG.md" ]; then
+  cp "docs/releases/$TAG.md" dist/NOTES.md
+else
+  PREVIOUS=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null)
+  git log --format='- %s' ${PREVIOUS:+"$PREVIOUS.."}"$TAG" > dist/NOTES.md
+fi
 
 echo
 ls -l dist
