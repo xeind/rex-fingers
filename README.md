@@ -103,7 +103,7 @@ fingers.setup{
   highlight_style = "",           -- SGR for the rest of the match; empty means 1;38;5;12
   dim = true,                     -- dim everything that is not a match
   flash = false,                  -- show the pick in reverse video for 150 ms
-  follow_scroll = false,          -- with "pane": hint the rows the focused pane is scrolled to
+  follow_scroll = false,          -- experimental: hint the rows the focused pane is scrolled to
 }
 ```
 
@@ -119,21 +119,10 @@ slots, so they follow your theme.
 `float` opens a floating pane over yours, two rows shorter, and never
 writes to your pane. Every-pane mode always draws in the panes.
 
-**Scrolled panes.** `follow_scroll = true` hints the rows the focused pane
-is scrolled to. It needs `overlay = "pane"` or every-pane mode. Rex reports
-no scroll position, so each trigger has the app copy the visible rows in
-copy mode. Copy mode flashes, and a helper waits about half a second for
-the rows, then puts your clipboard back as text. In every-pane mode only
-the focused pane follows its scroll; the others show their live screens.
-
 ## Limits
 
-- Hints cover the live screen. A scrolled pane gets hints on the rows it
-  shows only when it has focus and `follow_scroll = true`. Without that,
-  scroll to the bottom first.
-- With `follow_scroll`, a copied image is lost from the clipboard, the Rex
-  server must run on the machine the app runs on, and a scrolled pane
-  loses what its program prints while the hints are up.
+- Hints cover the live screen. Scroll a pane to the bottom first, or see
+  `follow_scroll` below.
 - With `overlay = "float"`, the float hides the top two rows of the pane.
 - No multi-select or jump mode. Rex cannot move a pane's cursor from outside.
 - On a remote Rex server, set `copy_command` to a command that reaches your
@@ -142,6 +131,23 @@ the focused pane follows its scroll; the others show their live screens.
   hints show stays on screen, and the hints stop narrowing as you type.
   Rows that scroll into the scrollback keep their hint letters. A float
   never writes to the pane, so it leaves nothing behind.
+
+## Experimental: `follow_scroll`
+
+`follow_scroll = true` hints the rows the focused pane is scrolled to. It
+is off by default, and it needs `overlay = "pane"` or every-pane mode. Rex
+reports no scroll position, so on each trigger the app copies the visible
+rows in copy mode, and a helper takes them from the clipboard. That has
+costs:
+
+- Copy mode flashes, and the hints come up about half a second later.
+- The helper puts your clipboard back as text, so a copied image is lost.
+- The Rex server must run on the machine the app runs on.
+- A scrolled pane loses what its program prints while the hints are up.
+- In every-pane mode only the focused pane follows its scroll; the others
+  show their live screens.
+
+The option goes when Rex reports a scroll position.
 
 ## Troubleshooting
 
