@@ -231,6 +231,40 @@ if begin_case "pane output during the mode, a background writer"; then
   end_case
 fi
 
+# row_vt N prints row N of the pane as VT, with ESC shown as ^[.
+row_vt() { rex capture -s "$S" -b "$B" --format=vt --trim | sed -n "$1p" | LC_ALL=C cat -v; }
+
+if begin_case "a row the program wrote into loses its hint and keeps the new text"; then
+  type_line 'clear; echo /tmp/a'
+  capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path >/dev/null
+  check "a hint is drawn" [ -n "$(hint_for tmp/a)" ]
+  # A program adds text to a row that holds a hint, as a shell does when a
+  # character is typed at a prompt that shows a path. Written through the
+  # tty, so the case does not depend on how the shell redraws its prompt.
+  printf '\0337\033[1;9Hmore\0338' > /dev/"$T"; sleep 0.3
+  BEFORE=$(text | sed -E -e 's#(^|[^[:alnum:]/])[a-z](tmp/)#\1/\2#g' -e 's#^[a-z](/dev/)#~\1#')
+  check "the new text is on the hinted row" [ "$(echo "$BEFORE" | head -1)" = "/tmp/a  more" ]
+  current
+  OUT=$($BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --current-file "$CUR")
+  check "restore reports the change" [ "$(echo "$OUT" | jq -r .changed)" = true ]
+  check "the match has lost its highlight" sh -c '! echo "$1" | grep -Fq "38;5;12m"' sh "$(row_vt 1)"
+  end_case
+fi
+
+if begin_case "a row the program redrew keeps the program's style"; then
+  type_line 'clear; echo /tmp/a'
+  capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path >/dev/null
+  # The program draws the whole row again, in reverse video. No hint cell
+  # is left on it, so restore must not write to it.
+  printf '\0337\033[1;1H\033[7m/tmp/a\033[0m\0338' > /dev/"$T"; sleep 0.3
+  BEFORE=$(text | sed -E -e 's#(^|[^[:alnum:]/])[a-z](tmp/)#\1/\2#g' -e 's#^[a-z](/dev/)#~\1#')
+  current
+  OUT=$($BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --current-file "$CUR")
+  check "restore reports the change" [ "$(echo "$OUT" | jq -r .changed)" = true ]
+  check "the row is still in reverse video" sh -c 'echo "$1" | grep -Fq "[7m/tmp/a"' sh "$(row_vt 1)"
+  end_case
+fi
+
 if begin_case "scrollback above a half-empty screen, restore with current"; then
   # clear in nushell also wipes the scrollback, so the screen is erased
   # with ED 2 alone: the rows above stay in the scrollback.

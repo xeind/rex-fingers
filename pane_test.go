@@ -75,15 +75,45 @@ func TestRecoverLeftoverRun(t *testing.T) {
 func TestAlignRowsFindsTheScroll(t *testing.T) {
 	painted := []string{"$ ls", "atmp/a", "stmp/b", "dtmp/c", "$ ", ""}
 	cur := []string{"stmp/b", "dtmp/c", "$ echo hi", "hi", "$ ", ""}
-	rows := alignRows(cur, painted)
-	if len(rows) != 2 || rows[0] != 2 || rows[1] != 3 {
-		t.Fatalf("rows %v, want {0:2 1:3}", rows)
+	rows, k := alignRows(cur, painted)
+	if len(rows) != 2 || rows[0] != 2 || rows[1] != 3 || k != 2 {
+		t.Fatalf("rows %v at offset %d, want {0:2 1:3} at 2", rows, k)
 	}
-	if rows := alignRows(painted, painted); len(rows) != 5 || rows[1] != 1 {
+	if rows, _ := alignRows(painted, painted); len(rows) != 5 || rows[1] != 1 {
 		t.Fatalf("unchanged screen: %v", rows)
 	}
-	if rows := alignRows([]string{"x", "y"}, painted); len(rows) != 0 {
+	if rows, _ := alignRows([]string{"x", "y"}, painted); len(rows) != 0 {
 		t.Fatalf("replaced screen: %v", rows)
+	}
+}
+
+// Rows the pane's program wrote into while the hints were up. A prompt
+// row with a character typed after it still shows its hint: the captured
+// cells go back over the columns that show the paint, and the typed
+// character is not written over. A row the program redrew, hint cell
+// included, and a row of new output are left alone.
+func TestWrittenRowsPutBackOnlyThePaintedCells(t *testing.T) {
+	scr := screen.Parse("/tmp/a\r\n\x1b[34m~/dev/x\x1b[0m main > \r\nold line\r\nstays", 4)
+	painted := []string{"atmp/a", "s/dev/x main > ", "old line", "stays"}
+	lines := screen.Parse("/tmp/a!\r\n"+
+		"\x1b[2m\x1b[7ms\x1b[0;2m/dev/x main > \x1b[0m\x1b[31m1\x1b[0m\r\n"+
+		"something else\r\n"+
+		"stays", 4).Lines
+	cur := make([]string, len(lines))
+	for i, l := range lines {
+		cur[i] = l.Text
+	}
+	rows, k := alignRows(cur, painted)
+	if len(rows) != 1 || rows[3] != 3 || k != 0 {
+		t.Fatalf("rows %v at offset %d, want {3:3} at 0", rows, k)
+	}
+	over := writtenRows(lines, painted, scr, k, rows)
+	want := "\x1b[2;1H\x1b[0m\x1b[34m~/dev/x\x1b[0m main > \x1b[0m"
+	if over[1] != want {
+		t.Errorf("the prompt row: %q, want %q", over[1], want)
+	}
+	if len(over) != 1 {
+		t.Errorf("rows patched: %v, want only the prompt row", over)
 	}
 }
 

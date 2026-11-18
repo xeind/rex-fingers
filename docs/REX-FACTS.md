@@ -11,29 +11,36 @@ change the date, the build, and the code it names.
 
 ## Test runs
 
-2026-11-18, commit `08caedf`, CLI and server `0.1.0-preview.20`, macOS on
-arm64. The runs are headless, so no app build takes part; the app bundle
-on disk reported build 2033 that day.
+2026-11-19, the commit after `67c628e`, CLI and server
+`0.1.0-preview.20`, macOS on arm64. The runs are headless, so no app
+build takes part; the app bundle on disk reported build 2033.
 
 | Run | Result |
 | --- | --- |
-| `sh scripts/test_in_pane.sh`, nushell 0.116.1 | passed 27, failed 0 |
-| `TEST_SHELL=bash sh scripts/test_in_pane.sh`, bash 3.2.57 | passed 27, failed 0 |
-| `TEST_SHELL=zsh sh scripts/test_in_pane.sh`, zsh 5.9 | passed 23, failed 4, twice |
+| `sh scripts/test_in_pane.sh`, nushell 0.116.1 | passed 29, failed 0 |
+| `TEST_SHELL=bash sh scripts/test_in_pane.sh`, bash 3.2.57 | passed 29, failed 0 |
+| `TEST_SHELL=zsh sh scripts/test_in_pane.sh`, zsh 5.9 | passed 28, failed 1 |
 | `sh scripts/test_resources.sh` | passed 17, failed 0 |
-| The float loop of [TESTING.md](TESTING.md), on a server started with `overlay = "float"` | the float opened, `a` copied `/tmp/a`, the float closed |
-| `scripts/smoke_test.sh` in CI, Ubuntu and macOS | passed |
+| The float loop of [TESTING.md](TESTING.md), on a server started with `overlay = "float"`, 2026-11-18 | the float opened, `a` copied `/tmp/a`, the float closed |
+| `scripts/smoke_test.sh` in CI, Ubuntu and macOS, 2026-11-18 | passed |
 
-The four zsh failures are all "pane text unchanged", and their cause is
-not confirmed:
+Cases that fail now and then, each on "pane text unchanged" unless said:
 
-- "pane output during the mode", in the cases "no scroll", "scrolls", and
-  "a background writer". In two of them a hint letter stayed on the
-  prompt row: `~/dev/rex-fingers main ❯` came back as `d/dev/rex-fingers
-  main ❯`. The prompt showed the directory, which is a match.
-- "keys". The prompt ended with `sudo` and the last command. The case
-  presses Escape twice on an idle pane, and that zsh setup acts on a
-  double Escape.
+- "keys" under zsh, every run. The prompt ends with `sudo` and the last
+  command. The case presses Escape twice on an idle pane, and that zsh
+  setup acts on a double Escape. A fault of the case, not of the plugin.
+- "keys" under nushell, in some runs. The mark of the right prompt is
+  missing after the run. Cause not found.
+- "actions" under nushell, once in three runs: no hint was read from the
+  pane. Cause not found.
+- "leaks: 50 runs with --await-views" of the resource script: the
+  clipboard did not hold the saved text after 1 or 2 of 50 runs, in 2 of
+  10 runs of the case. Cause not found; another program may have written
+  to the clipboard.
+
+On 2026-11-18, at `08caedf`, zsh failed three more cases, all "pane
+output during the mode": a hint letter stayed on the prompt row, where
+zsh had added the typed command. `writtenRows` fixed that.
 
 The float in the app, and any run on Linux beyond the smoke test, are not
 tested.

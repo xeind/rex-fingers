@@ -138,6 +138,129 @@ func (l Line) CellAt(off, length int) (start, count int) {
 	return start, len(l.Cells) - start
 }
 
+// Diff compares the line with want, the text the row is expected to show,
+// column by column. It returns the column ranges where they differ, each
+// as a start and an end one past the last column, and how many of want's
+// non-blank cells the line still shows, out of how many.
+func (l Line) Diff(want string) (runs [][2]int, kept, total int) {
+	have, expect := columns(l.Cells), columns(cellsOf(want))
+	n := len(have)
+	if len(expect) > n {
+		n = len(expect)
+	}
+	at := func(cols []rune, i int) rune {
+		if i < len(cols) {
+			return cols[i]
+		}
+		return ' '
+	}
+	start := -1
+	for i := 0; i < n; i++ {
+		h, w := at(have, i), at(expect, i)
+		if w != ' ' && w != 0 {
+			total++
+			if h == w {
+				kept++
+			}
+		}
+		if h != w && start < 0 {
+			start = i
+		}
+		if h == w && start >= 0 {
+			runs = append(runs, [2]int{start, i})
+			start = -1
+		}
+	}
+	if start >= 0 {
+		runs = append(runs, [2]int{start, n})
+	}
+	return runs, kept, total
+}
+
+// columns returns one rune per terminal column: a wide character is its
+// rune, then 0 for the column it also covers.
+func columns(cells []Cell) []rune {
+	var cols []rune
+	for _, c := range cells {
+		cols = append(cols, c.Rune)
+		for i := 1; i < c.Width; i++ {
+			cols = append(cols, 0)
+		}
+	}
+	return cols
+}
+
+// Slice returns VT that draws columns from up to, not including, to of the
+// line as l.VT styles them, for a cursor already at column from. The SGR
+// sequences before those columns are replayed first, so the slice does not
+// depend on the style in force. A cell the line never wrote, and a column
+// past its end, is drawn as a blank in the default style.
+func (l Line) Slice(from, to int) string {
+	var b, sgr strings.Builder
+	started := false
+	begin := func() {
+		if !started {
+			started = true
+			b.WriteString("\x1b[0m")
+			b.WriteString(sgr.String())
+		}
+	}
+	blank := func() {
+		begin()
+		b.WriteString("\x1b[0m ")
+		b.WriteString(sgr.String())
+	}
+	rs := []rune(l.VT)
+	col := 0
+	for i := 0; i < len(rs) && col < to; i++ {
+		r := rs[i]
+		if r == 0x1b {
+			last, blanks := escape(rs, i)
+			if i+1 < len(rs) && rs[i+1] == '[' && last < len(rs) && rs[last] == 'm' {
+				seq := string(rs[i : last+1])
+				sgr.WriteString(seq)
+				if started {
+					b.WriteString(seq)
+				}
+			}
+			for ; blanks > 0 && col < to; blanks-- {
+				if col >= from {
+					blank()
+				}
+				col++
+			}
+			i = last
+			continue
+		}
+		w := width(r)
+		if r == '\t' {
+			r = ' '
+		}
+		if w == 0 {
+			// A combining mark belongs to the cell before it.
+			if started && r >= 0x20 && r != 0x7f {
+				b.WriteRune(r)
+			}
+			continue
+		}
+		if col >= from {
+			begin()
+			b.WriteRune(r)
+		}
+		col += w
+	}
+	if col < from {
+		col = from
+	}
+	for ; col < to; col++ {
+		blank()
+	}
+	if started {
+		b.WriteString("\x1b[0m")
+	}
+	return b.String()
+}
+
 func textOf(cells []Cell) string {
 	var b strings.Builder
 	for _, c := range cells {
@@ -159,64 +282,80 @@ func cellsOf(vt string) []Cell {
 				cells = append(cells, Cell{' ', 1})
 				continue
 			}
-			if r < 0x20 || r == 0x7f {
-				continue
+			if w := width(r); w > 0 {
+				cells = append(cells, Cell{r, w})
 			}
-			w := runewidth.RuneWidth(r)
-			if w == 0 {
-				continue
-			}
-			// go-runewidth gives a regional indicator, half of a flag,
-			// width 1. Ghostty, Rex's emulator, draws each one 2 columns
-			// wide while grapheme clustering (mode 2027) is off.
-			if r >= 0x1F1E6 && r <= 0x1F1FF {
-				w = 2
-			}
-			cells = append(cells, Cell{r, w})
 			continue
 		}
-		if i+1 >= len(rs) {
-			break
+		last, blanks := escape(rs, i)
+		for k := 0; k < blanks; k++ {
+			cells = append(cells, Cell{' ', 1})
 		}
-		switch rs[i+1] {
-		case '[':
-			j := i + 2
-			for j < len(rs) && (rs[j] < 0x40 || rs[j] > 0x7e) {
-				j++
-			}
-			if j < len(rs) && rs[j] == 'C' {
-				n := 0
-				for _, d := range rs[i+2 : j] {
-					if d >= '0' && d <= '9' {
-						n = n*10 + int(d-'0')
-					}
-				}
-				if n == 0 {
-					n = 1
-				}
-				for k := 0; k < n; k++ {
-					cells = append(cells, Cell{' ', 1})
-				}
-			}
-			i = j
-		case ']':
-			j := i + 2
-			for j < len(rs) {
-				if rs[j] == 0x07 {
-					break
-				}
-				if rs[j] == 0x1b && j+1 < len(rs) && rs[j+1] == '\\' {
-					j++
-					break
-				}
-				j++
-			}
-			i = j
-		case '(', ')', '#':
-			i += 2
-		default:
-			i++
-		}
+		i = last
 	}
 	return cells
+}
+
+// width returns the number of columns r takes: 0 for a control character
+// or a combining mark, 1 for a tab, which the capture holds as one cell.
+func width(r rune) int {
+	if r == '\t' {
+		return 1
+	}
+	if r < 0x20 || r == 0x7f {
+		return 0
+	}
+	w := runewidth.RuneWidth(r)
+	// go-runewidth gives a regional indicator, half of a flag, width 1.
+	// Ghostty, Rex's emulator, draws each one 2 columns wide while
+	// grapheme clustering (mode 2027) is off.
+	if w > 0 && r >= 0x1F1E6 && r <= 0x1F1FF {
+		w = 2
+	}
+	return w
+}
+
+// escape reads the escape sequence that starts at rs[i]. It returns the
+// index of the sequence's last rune, which is len(rs) for one cut short,
+// and the number of blank cells it stands for: n for cursor-forward
+// (CSI n C), 0 for any other.
+func escape(rs []rune, i int) (last, blanks int) {
+	if i+1 >= len(rs) {
+		return len(rs), 0
+	}
+	switch rs[i+1] {
+	case '[':
+		j := i + 2
+		for j < len(rs) && (rs[j] < 0x40 || rs[j] > 0x7e) {
+			j++
+		}
+		if j < len(rs) && rs[j] == 'C' {
+			for _, d := range rs[i+2 : j] {
+				if d >= '0' && d <= '9' {
+					blanks = blanks*10 + int(d-'0')
+				}
+			}
+			if blanks == 0 {
+				blanks = 1
+			}
+		}
+		return j, blanks
+	case ']':
+		j := i + 2
+		for j < len(rs) {
+			if rs[j] == 0x07 {
+				break
+			}
+			if rs[j] == 0x1b && j+1 < len(rs) && rs[j+1] == '\\' {
+				j++
+				break
+			}
+			j++
+		}
+		return j, 0
+	case '(', ')', '#':
+		return i + 2, 0
+	default:
+		return i + 1, 0
+	}
 }

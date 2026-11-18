@@ -67,14 +67,18 @@ func Restore(scr screen.Screen, cursorVisible, wraparound bool) string {
 // It is for a pane that wrote output while the hints were up: the rows
 // that still show hints are put back, the new output is left alone, and
 // the cursor stays where the pane's program put it.
-func RestoreRows(scr screen.Screen, rows map[int]int, cursorVisible, wraparound bool) string {
+//
+// over holds, for a row the program wrote into, VT that positions the
+// cursor itself and puts back only the cells that still show the hints.
+// Such a row is not cleared, so what the program wrote there stays.
+func RestoreRows(scr screen.Screen, rows map[int]int, over map[int]string, cursorVisible, wraparound bool) string {
 	var b strings.Builder
-	for row := 0; row < len(scr.Lines)+len(rows); row++ {
-		src, ok := rows[row]
-		if !ok || src < 0 || src >= len(scr.Lines) {
-			continue
+	for row := 0; row < len(scr.Lines)+len(rows)+len(over); row++ {
+		if src, ok := rows[row]; ok && src >= 0 && src < len(scr.Lines) {
+			fmt.Fprintf(&b, "\x1b7\x1b[%d;1H\x1b[0m\x1b[2K%s\x1b8", row+1, scr.Lines[src].VT)
+		} else if seq := over[row]; seq != "" {
+			fmt.Fprintf(&b, "\x1b7%s\x1b8", seq)
 		}
-		fmt.Fprintf(&b, "\x1b7\x1b[%d;1H\x1b[0m\x1b[2K%s\x1b8", row+1, scr.Lines[src].VT)
 	}
 	b.WriteString("\x1b[0m")
 	if wraparound {

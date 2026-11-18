@@ -117,3 +117,49 @@ func TestTextsMatchesParse(t *testing.T) {
 		}
 	}
 }
+
+// Diff reports the columns where a row no longer shows the expected text,
+// and how much of that text is still there. A wide character takes two
+// columns.
+func TestDiffFindsTheChangedColumns(t *testing.T) {
+	line := Parse("s/dev/x > 12  世x", 1).Lines[0]
+	runs, kept, total := line.Diff("s/dev/x >     世y")
+	if len(runs) != 2 || runs[0] != [2]int{10, 12} || runs[1] != [2]int{16, 17} {
+		t.Errorf("runs %v, want [[10 12] [16 17]]", runs)
+	}
+	if kept != 9 || total != 10 {
+		t.Errorf("kept %d of %d, want 9 of 10", kept, total)
+	}
+	if runs, kept, total := line.Diff(line.Text); len(runs) != 0 || kept != total {
+		t.Errorf("the same text: runs %v, kept %d of %d", runs, kept, total)
+	}
+	// A row shorter than the expected text differs where it ends.
+	if runs, _, _ := Parse("ab", 1).Lines[0].Diff("abcd"); len(runs) != 1 || runs[0] != [2]int{2, 4} {
+		t.Errorf("short row: runs %v, want [[2 4]]", runs)
+	}
+}
+
+// Slice draws a range of columns with the styles the row gives them. The
+// styles set before the range are replayed; a cell the row skipped with
+// cursor-forward, and a column past its end, is a blank in the default
+// style.
+func TestSliceKeepsTheStyleOfTheColumns(t *testing.T) {
+	line := Parse("\x1b[2mab\x1b[0m\x1b[31mcd\x1b[0m\x1b[2Cz", 1).Lines[0]
+	for _, c := range []struct {
+		from, to int
+		want     string
+	}{
+		{2, 4, "\x1b[0m\x1b[2m\x1b[0m\x1b[31mcd\x1b[0m"},
+		{1, 3, "\x1b[0m\x1b[2mb\x1b[0m\x1b[31mc\x1b[0m"},
+		{5, 7, "\x1b[0m\x1b[2m\x1b[0m\x1b[31m\x1b[0m\x1b[0m \x1b[2m\x1b[0m\x1b[31m\x1b[0mz\x1b[0m"},
+		{7, 9, "\x1b[0m\x1b[2m\x1b[0m\x1b[31m\x1b[0m\x1b[0m \x1b[2m\x1b[0m\x1b[31m\x1b[0m\x1b[0m \x1b[2m\x1b[0m\x1b[31m\x1b[0m\x1b[0m"},
+	} {
+		if got := line.Slice(c.from, c.to); got != c.want {
+			t.Errorf("Slice(%d, %d) = %q, want %q", c.from, c.to, got, c.want)
+		}
+	}
+	// What a slice draws is what the row shows in those columns.
+	if got := Parse(line.Slice(1, 3), 1).Lines[0].Text; got != "bc" {
+		t.Errorf("Slice(1, 3) draws %q, want \"bc\"", got)
+	}
+}

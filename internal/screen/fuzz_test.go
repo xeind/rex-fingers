@@ -33,6 +33,16 @@ func FuzzParse(f *testing.F) {
 			if count > len(l.Cells) || start > len(l.Cells) {
 				t.Fatalf("CellAt(0, %d) = %d, %d on %d cells", len(l.Text), start, count, len(l.Cells))
 			}
+			// A row differs from its own text nowhere, and a slice of the
+			// whole row draws that text.
+			if runs, kept, total := l.Diff(l.Text); len(runs) != 0 || kept != total {
+				t.Fatalf("Diff of a row with its own text: runs %v, kept %d of %d", runs, kept, total)
+			}
+			if width := l.Column(len(l.Cells)); width <= 1000 {
+				if got := Parse(l.Slice(0, width), 1).Lines[0].Text; got != l.Text {
+					t.Fatalf("Slice(0, %d) draws %q, the row is %q", width, got, l.Text)
+				}
+			}
 		}
 	})
 }

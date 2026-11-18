@@ -99,8 +99,21 @@ rows that still show the frame are repainted (`inpane.RestoreRows`), and
 the cursor is left where the program put it. `press` still picks: a
 letter on screen names the same match in the capture. It skips the
 repaint after a first letter, which would cover the new output, and the
-flash, and reports `changed = true`. `scripts/test_in_pane.sh` has four
+flash, and reports `changed = true`. `scripts/test_in_pane.sh` has six
 cases for it.
+
+A row the program wrote into, such as a prompt row with a typed
+character, no longer equals the painted row, so it is not repainted
+whole. `writtenRows` takes it when it still shows at least half of the
+painted row's non-blank cells and at least one hint cell. `Line.Diff`
+finds the columns that changed, and `Line.Slice` cuts the other columns
+out of the first capture with their styles. The restore writes those
+slices and nothing else on that row: it does not clear the row, so the
+row loses its hints and keeps what the program added. A row with less in
+common is new output, and a row with no hint cell left was redrawn by its
+program; both are left alone. A zsh prompt that shows a path is the usual
+case: zsh adds a typed character to the row, where nushell redraws the
+whole prompt.
 
 Rows that scrolled into the scrollback keep the hints: no tty write
 reaches the scrollback, and the terminal block has no method that edits

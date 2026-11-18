@@ -60,10 +60,13 @@ type paneSpec struct {
 	// for press and restore. Optional. When it differs from the painted
 	// frame the pane wrote output during the run: moved is set and
 	// softRows maps each screen row that still shows the frame to the
-	// snapshot row to repaint it from.
+	// snapshot row to repaint it from. overRows holds, for each row the
+	// program wrote into, the VT that puts the captured cells back over
+	// the columns that still show the paint.
 	currentFile string
 	moved       bool
 	softRows    map[int]int
+	overRows    map[int]string
 	// viewFile is the text of the rows the pane shows, which may be a page
 	// of its scrollback. Optional; draw --begin finds the rows in the
 	// capture and deletes the file.
@@ -316,11 +319,11 @@ func sameRows(have, want []string) bool {
 	return true
 }
 
-// current returns the text of the pane's screen rows from the VT the
-// caller captured, and deletes the file. Nil without one. The text format
-// drops blank rows at the foot of the screen, so its last rows would reach
-// into the scrollback; the VT keeps every screen row.
-func (p *paneSpec) current() []string {
+// current returns the pane's screen rows from the VT the caller captured,
+// and deletes the file. Nil without one. The text format drops blank rows
+// at the foot of the screen, so its last rows would reach into the
+// scrollback; the VT keeps every screen row.
+func (p *paneSpec) current() []screen.Line {
 	if p.currentFile == "" {
 		return nil
 	}
@@ -329,39 +332,42 @@ func (p *paneSpec) current() []string {
 	if err != nil {
 		return nil
 	}
-	scr := screen.Parse(string(data), p.rows)
-	lines := make([]string, len(scr.Lines))
-	for i, l := range scr.Lines {
-		lines[i] = l.Text
-	}
-	return lines
+	return screen.Parse(string(data), p.rows).Lines
 }
 
 // checkMoved compares the pane's current text with the frame the run
 // painted. When they differ the pane wrote output during the run: moved
-// is set and softRows says which rows can still be put back.
+// is set, softRows says which rows can still be put back whole, and
+// overRows says what to write over the rows the program wrote into.
 func (p *paneSpec) checkMoved() {
-	cur := p.current()
-	if cur == nil {
+	lines := p.current()
+	if lines == nil {
 		return
 	}
 	data, err := os.ReadFile(runFile(p.tty))
 	if err != nil {
 		return
 	}
+	cur := make([]string, len(lines))
+	for i, l := range lines {
+		cur[i] = l.Text
+	}
 	var st runState
 	if json.Unmarshal(data, &st) != nil || sameRows(cur, st.Painted) {
 		return
 	}
 	p.moved = true
-	p.softRows = alignRows(cur, st.Painted)
+	var k int
+	p.softRows, k = alignRows(cur, st.Painted)
+	p.overRows = writtenRows(lines, st.Painted, p.scr, k, p.softRows)
 }
 
 // alignRows finds how far the pane scrolled, the offset k at which the
 // most non-blank painted rows reappear in the current rows, and returns
 // the screen rows that still show a painted row, mapped to that row's
-// index in the snapshot. Blank rows take no part: they match anywhere.
-func alignRows(cur, painted []string) map[int]int {
+// index in the snapshot, and k. Blank rows take no part: they match
+// anywhere.
+func alignRows(cur, painted []string) (map[int]int, int) {
 	trim := func(s string) string { return strings.TrimRight(s, " ") }
 	best, bestK := 0, 0
 	for k := 0; k < len(painted); k++ {
@@ -381,7 +387,68 @@ func alignRows(cur, painted []string) map[int]int {
 			rows[i] = i + bestK
 		}
 	}
-	return rows
+	return rows, bestK
+}
+
+// writtenRows finds the rows the pane's program wrote into without
+// replacing them, such as a prompt row with a typed character. Such a row
+// differs from the painted row, so alignRows leaves it out, and it kept
+// its hint letters. For each one it returns VT that puts the captured
+// cells back over the columns that still show the paint, and writes
+// nowhere else, so what the program added stays as the program drew it.
+//
+// A row qualifies when it still shows at least half of the painted row's
+// non-blank cells and at least one hint cell, a column where the paint
+// differs from the capture. A row with less in common is new output, and
+// a row with no hint cell left was redrawn by its program; both stay as
+// they are. rows holds the rows alignRows found, at scroll offset k.
+func writtenRows(lines []screen.Line, painted []string, scr screen.Screen, k int, rows map[int]int) map[int]string {
+	over := map[int]string{}
+	for i := 0; i+k < len(painted) && i+k < len(scr.Lines) && i < len(lines); i++ {
+		if _, same := rows[i]; same {
+			continue
+		}
+		was := scr.Lines[i+k]
+		changed, kept, total := lines[i].Diff(painted[i+k])
+		if total == 0 || kept*2 < total {
+			continue
+		}
+		hints, _, _ := was.Diff(painted[i+k])
+		if !anyOutside(hints, changed) {
+			continue
+		}
+		var b strings.Builder
+		from := 0
+		width := was.Column(len(was.Cells))
+		for _, run := range append(changed, [2]int{width, width}) {
+			if to := min(run[0], width); to > from {
+				fmt.Fprintf(&b, "\x1b[%d;%dH%s", i+1, from+1, was.Slice(from, to))
+			}
+			from = max(from, run[1])
+		}
+		over[i] = b.String()
+	}
+	return over
+}
+
+// anyOutside reports whether a column of runs lies in none of the ranges
+// of other. Both are sorted column ranges, end not included.
+func anyOutside(runs, other [][2]int) bool {
+	for _, r := range runs {
+		for c := r[0]; c < r[1]; c++ {
+			inside := false
+			for _, o := range other {
+				if c >= o[0] && c < o[1] {
+					inside = true
+					break
+				}
+			}
+			if !inside {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // parsePaneSpec reads a --pane value: comma-separated key=value pairs
@@ -656,7 +723,7 @@ func (p *paneSpec) restore() error {
 		if p.alt {
 			seq = inpane.RestoreAlt(p.cursor, p.wrap)
 		} else if p.moved {
-			seq = inpane.RestoreRows(p.scr, p.softRows, p.cursor, p.wrap)
+			seq = inpane.RestoreRows(p.scr, p.softRows, p.overRows, p.cursor, p.wrap)
 		}
 		_, err = tty.WriteString(seq)
 		tty.Close()
