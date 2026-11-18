@@ -5,7 +5,7 @@
 | Script | Needs | Opens or overwrites |
 | --- | --- | --- |
 | `go test ./...` | Go | nothing |
-| `sh scripts/smoke_test.sh` | Go; no Rex | nothing. Runs gofmt, vet, build, `go test -race`, and two 10 s fuzz runs. CI runs it on Ubuntu and macOS. |
+| `sh scripts/smoke_test.sh` | Go; no Rex | nothing. Runs gofmt, vet, build, `go test -race`, and two 10 s fuzz runs. CI runs it on Ubuntu and macOS with `FUZZTIME=0`, which skips the fuzz runs. |
 | `sh scripts/test_in_pane.sh` | a Rex server, `bin/rex-fingers`, `jq`, `pbcopy`; the plugin loaded in the running config for the `keys` case | opens sessions named `fingers-test`; **overwrites the clipboard** and does not put it back |
 | `sh scripts/test_resources.sh` | the same, and `perl`; about 3 minutes | opens `fingers-test` sessions; saves the clipboard and puts it back as text, so a copied image is lost. It fails if hints are up in the app, and deletes `rex-fingers-*` temp files after a failed case. |
 
