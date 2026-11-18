@@ -8,6 +8,7 @@
 #
 #   sh scripts/test_in_pane.sh            # all cases
 #   sh scripts/test_in_pane.sh output     # cases whose name contains "output"
+#   TEST_SHELL=bash sh scripts/test_in_pane.sh   # the panes run bash, not the default shell
 #
 # Needs bin/rex-fingers (go build -o bin/rex-fingers .), jq, pbcopy.
 cd "$(dirname "$0")/.." || exit 1
@@ -17,7 +18,12 @@ PASS=0; FAIL=0
 
 # --- session helpers --------------------------------------------------
 open_session() {
-  S=$(rex new fingers-test --json | jq -r .session_id); sleep 1.5
+  if [ -n "${TEST_SHELL:-}" ]; then
+    S=$(rex new fingers-test --json -- "$TEST_SHELL" | jq -r .session_id)
+  else
+    S=$(rex new fingers-test --json | jq -r .session_id)
+  fi
+  sleep 1.5
   B=$(rex api call -s "$S" session.view '{}' | jq -r '.windows[0].layers[0].blocks[0].block_id')
   P=$(rex block call -s "$S" -b "$B" process | jq -r .foreground.pid)
   T=$(ps -o tty= -p "$P" | tr -d ' ')
