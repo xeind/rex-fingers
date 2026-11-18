@@ -333,7 +333,7 @@ trigger key restores the pane.
 ## Facts the code depends on
 
 - A floating pane in Rex for Mac is two rows shorter than the pane under
-  it; `--align` picks which rows to drop. The pane reports 80x24 until the
+  it; `show` drops the top two rows. The pane reports 80x24 until the
   app sizes it, so `ui.waitForSize` polls up to 1.5 s and `draw` reruns on
   SIGWINCH.
 - Rex for Mac build 1825 did not forward OSC 52 to the clipboard; build

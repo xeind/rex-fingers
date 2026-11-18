@@ -103,7 +103,6 @@ fingers.setup{
   highlight_style = "",           -- SGR for the rest of the match; empty means 1;38;5;12
   dim = true,                     -- dim everything that is not a match
   flash = false,                  -- show the pick in reverse video for 150 ms
-  align = "bottom",               -- float only: the pane edge to keep, since the float is two rows shorter
   follow_scroll = false,          -- with "pane": hint the rows the focused pane is scrolled to
 }
 ```
@@ -135,8 +134,7 @@ the focused pane follows its scroll; the others show their live screens.
 - With `follow_scroll`, a copied image is lost from the clipboard, the Rex
   server must run on the machine the app runs on, and a scrolled pane
   loses what its program prints while the hints are up.
-- With `overlay = "float"`, the float hides two rows of the pane; `align`
-  picks which.
+- With `overlay = "float"`, the float hides the top two rows of the pane.
 - No multi-select or jump mode. Rex cannot move a pane's cursor from outside.
 - On a remote Rex server, set `copy_command` to a command that reaches your
   clipboard, such as `ssh laptop pbcopy`.

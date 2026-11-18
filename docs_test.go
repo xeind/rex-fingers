@@ -82,7 +82,7 @@ func TestReadmeOptionsMatchLuaDefaults(t *testing.T) {
 // that reaches neither would do nothing.
 func TestLuaOptionsReachTheProgram(t *testing.T) {
 	src := readFile(t, "lua/rex-fingers/init.lua")
-	luaOnly := map[string]bool{"binary": true, "key": true, "window_key": true, "overlay": true, "align": true}
+	luaOnly := map[string]bool{"binary": true, "key": true, "window_key": true, "overlay": true}
 	for name := range luaDefaults(t) {
 		if luaOnly[name] {
 			continue

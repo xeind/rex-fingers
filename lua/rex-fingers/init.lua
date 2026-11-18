@@ -55,8 +55,6 @@ local defaults = {
   -- Show the picked match in reverse video for a moment before the pane
   -- comes back, as feedback that it was copied.
   flash = false,
-  -- Which edge of the pane to keep when the floating pane is shorter.
-  align = "bottom",
   -- Where the hints are drawn: "pane", the pane itself, or "float", a
   -- floating pane over the pane, two rows shorter.
   overlay = "pane",
@@ -219,7 +217,7 @@ local function command(opts, ctx, args)
   local path, text, size = capture(ctx)
   local argv = { binary(opts), "show", "--session", ctx.session_id, "--block", ctx.block_id,
                  "--vt-file", path, "--text-file", text, "--rows", tostring(size.rows),
-                 "--cols", tostring(size.columns), "--align", opts.align }
+                 "--cols", tostring(size.columns) }
   return option_flags(argv, opts, args)
 end
 

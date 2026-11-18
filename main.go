@@ -112,7 +112,6 @@ flags of show:
   --highlight-style SGR   default 1;38;5;12
   --no-dim                keep non-matches at full brightness
   --flash MS              show the picked match in reverse video for MS ms
-  --align top|bottom      rows to keep when the overlay is shorter
 
 flags of draw, press, and restore, which draw in the pane's own tty and
 also take the flags of show that pick and style the hints:
@@ -247,7 +246,6 @@ func show(args []string) error {
 	rows := fs.Int("rows", 0, "")
 	cols := fs.Int("cols", 0, "")
 	opts := addOptions(fs)
-	align := fs.String("align", "bottom", "")
 	fs.Usage = usage
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -291,7 +289,9 @@ func show(args []string) error {
 			scr.Join(width, string(text))
 		}
 	}
-	overlay, err := opts.overlay(scr, *align)
+	// The float is two rows shorter than the pane. It keeps the bottom
+	// rows, where the prompt is.
+	overlay, err := opts.overlay(scr, "bottom")
 	if err != nil {
 		return err
 	}
