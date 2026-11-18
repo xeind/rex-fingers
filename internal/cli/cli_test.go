@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -18,7 +18,13 @@ import (
 var binary string
 
 // TestMain builds the program once, so the CLI tests run the real binary.
+// The tests run from the module root, two directories up: the program is
+// built from there, and docs_test.go reads README.md, AGENTS.md, docs/,
+// and lua/ by paths from there.
 func TestMain(m *testing.M) {
+	if err := os.Chdir(filepath.Join("..", "..")); err != nil {
+		panic(err)
+	}
 	dir, err := os.MkdirTemp("", "rex-fingers-cli-")
 	if err != nil {
 		panic(err)

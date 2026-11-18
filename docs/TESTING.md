@@ -40,12 +40,12 @@ screenshot.
 
 ## Draw in a pane by hand
 
-`testdata/width-cases.txt` holds one line per character-width case:
+`scripts/testdata/width-cases.txt` holds one line per character-width case:
 
 ```sh
 S=$(rex new flag-probe --json | jq -r .session_id); sleep 1.5
 B=$(rex api call -s $S session.view '{}' | jq -r '.windows[0].layers[0].blocks[0].block_id')
-rex send -s $S -b $B 'clear; cat testdata/width-cases.txt' && rex send-key -s $S -b $B enter; sleep 1
+rex send -s $S -b $B 'clear; cat scripts/testdata/width-cases.txt' && rex send-key -s $S -b $B enter; sleep 1
 rex block call -s $S -b $B format '{"format":"vt"}' | jq -j .content > /tmp/flag.vt
 P=$(rex block call -s $S -b $B process | jq -r .foreground.pid)
 go build -o bin/rex-fingers . && ./bin/rex-fingers draw --begin --pid $P --vt-file /tmp/flag.vt --rows 24 --cols 80

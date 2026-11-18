@@ -23,7 +23,7 @@ Always:
   change.
 - Declare an option once in `defaults` in `init.lua`, and document it in
   `README.md` under Configuration with the same name and default.
-  `docs_test.go` checks both.
+  `internal/cli/docs_test.go` checks both.
 - Keep tmux-fingers' names and defaults where Rex allows it.
 - Recheck `docs/REX-FACTS.md` when a Rex build changes behavior.
 
@@ -74,8 +74,10 @@ each wish to its option. For each change:
 
 | Path | Holds |
 | --- | --- |
-| `main.go` | CLI: `show`, `patterns`, `layouts`, `version`; action dispatch |
-| `pane.go` | CLI: `draw`, `press`, `restore` for `overlay = "pane"`, one pane or several `--pane` specs; each prints one JSON object; `runState` and `recover` for a run left without restore; `locate` and `findOffset` for the page a scrolled pane shows |
+| `main.go` | package `main`: one call to `cli.Main`. It stays at the root so that `go install` of the module path builds the program |
+| `internal/cli/cli.go` | CLI: `show`, `patterns`, `layouts`, `version`; action dispatch |
+| `internal/cli/pane.go` | CLI: `draw`, `press`, `restore` for `overlay = "pane"`, one pane or several `--pane` specs; each prints one JSON object; `runState` and `recover` for a run left without restore; `locate` and `findOffset` for the page a scrolled pane shows |
+| `internal/cli/await.go` | the background wait of `draw --await-views`, for `follow_scroll` |
 | `internal/inpane` | `Begin` and `Restore` sequences, `BeginAlt` and `RestoreAlt` for a scrolled pane, `TTY(pid)` to find the pane's tty |
 | `internal/screen` | VT dump to lines of cells; `Parse`, `Line.Column`, `Line.CellAt` |
 | `internal/patterns` | `Builtin` map, `Default` (all but `digit`), `Weight` per pattern for hint order, `Compile`, `Set.Find` with leftmost-longest overlap rule |

@@ -146,7 +146,7 @@ A paste goes to the first pane, the one the key was pressed in, and
 A pane scrolled up shows its scrollback, and the steps above hint its
 live screen, out of view. Rex reports no scroll position. So the app
 copies the rows the pane shows, and the program takes them from the
-clipboard (`follow_scroll` in `init.lua`, `await.go`):
+clipboard (`follow_scroll` in `init.lua`, `internal/cli/await.go`):
 
 1. `start_panes` with `await = 1` runs `draw --begin --await-views 1`
    with one `--pane` spec per pane, the focused pane first. That call

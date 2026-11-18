@@ -1,4 +1,4 @@
-package main
+package cli
 
 // The in-pane subcommands draw the hints into the target pane's own tty.
 // The Lua plugin runs them through rex.exec and keeps the state between

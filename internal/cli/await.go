@@ -1,4 +1,4 @@
-package main
+package cli
 
 // draw --begin --await-views hints the page each pane is scrolled to. Rex
 // reports no scroll position, so the Lua plugin has the app copy the rows

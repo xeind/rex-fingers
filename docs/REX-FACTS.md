@@ -53,7 +53,8 @@ drops the top two rows. The pane reports 80x24 until the app sizes it, so
 Tested: Rex for Mac; build and date not recorded.
 
 **A pane whose program exits within a moment stays open.** So the program
-lives at least 400 ms, by a sleep at the end of `show` in `main.go`.
+lives at least 400 ms, by a sleep at the end of `show` in
+`internal/cli/cli.go`.
 Tested: not recorded.
 
 **`session.view` nests `split.before` and `split.after`**, each with
@@ -66,8 +67,8 @@ bounds. Used by the rectangle lookup in `init.lua`. Tested: not recorded.
 clipboard; build 1859 does, from a pane's tty, within a second. Copy
 still uses `pbcopy` or a Linux equivalent and writes OSC 52 too, into the
 pane's tty in pane mode, so the app's own copy feedback fires when it has
-one. Used by `copyText` in `main.go`. Tested: builds 1825 and 1859; date
-not recorded.
+one. Used by `copyText` in `internal/cli/cli.go`. Tested: builds 1825 and
+1859; date not recorded.
 
 ## Captures
 
@@ -133,7 +134,7 @@ the run.** No client is needed, since nothing enters a key mode. Tested:
 ## Scroll position
 
 Tested 2026-11-18 on build 2027. Used by `follow_scroll` in `init.lua`
-and by `await.go`.
+and by `internal/cli/await.go`.
 
 - No block method, `session.view` field, or terminal event reports the
   scroll position, and `rex.on` handlers in `init.lua` do nothing in this

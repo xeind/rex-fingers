@@ -413,7 +413,7 @@ if begin_case "actions: shell command with stdin and MODIFIER, and copy_command"
 fi
 
 if begin_case "character widths: hints over every width case, pane restored"; then
-  type_line 'clear; cat testdata/width-cases.txt'; BEFORE=$(text)
+  type_line 'clear; cat scripts/testdata/width-cases.txt'; BEFORE=$(text)
   capture; OUT=$($BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path)
   check "hints drawn over the width cases" [ "$(echo "$OUT" | jq -r .hints)" -gt 0 ]
   $BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common >/dev/null

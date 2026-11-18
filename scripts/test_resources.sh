@@ -538,7 +538,7 @@ fi
 
 if begin_case "scale: width cases in 12 panes, draw and restore"; then
   open_panes 12
-  for b in $BLOCKS; do type_to "$b" "clear; cat $PWD/testdata/width-cases.txt"; done
+  for b in $BLOCKS; do type_to "$b" "clear; cat $PWD/scripts/testdata/width-cases.txt"; done
   sleep 2; snapshot_all; build_specs
   draw_panes $PAT
   echo "   time: draw over 12 panes of width cases: $DRAW_MS ms"
