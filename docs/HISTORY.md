@@ -49,6 +49,24 @@ places of the capture, the live screen was hinted, and the pane looked as
 if it had jumped to the bottom. `findOffset` now takes the page whose rows
 line up with the copied lines, then the nearest.
 
+## The prebuilt tarball
+
+On 2026-11-19, `v0.3.0` went out as a GitHub release with two macOS
+tarballs, each holding the built program and the Lua plugin, and the
+install became one `curl` line. It was withdrawn the same day, and the
+release was deleted; the tag stays.
+
+The program was signed ad hoc and not notarized. A copy fetched with
+`curl` ran. A copy downloaded with a browser carried
+`com.apple.quarantine`, and macOS killed it with exit 137 and showed the
+dialog "rex-fingers Not Opened". Only `xattr -dr com.apple.quarantine` on
+the folder got past it. Notarizing needs a paid Apple Developer account.
+
+The install is `go install` and `git clone` at one tag again. A program
+built on the user's machine is never quarantined. The cost is that the
+user needs Go 1.26 and git. `scripts/build_release.sh` built the
+tarballs; `git show 2a27f56:scripts/build_release.sh` prints it.
+
 ## The align option
 
 `align` chose which two rows a float hides, top or bottom. It was cut on

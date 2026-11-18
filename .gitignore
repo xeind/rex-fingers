@@ -1,5 +1,3 @@
 bin/
-dist/
-stage/
 local/
 .DS_Store

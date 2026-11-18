@@ -29,26 +29,25 @@ Always:
 
 ## Install it for a user
 
-1. On macOS, unpack a release into `~/.config/rex/plugins`. The tarball
-   holds the program and the plugin. `V` is the newest tag at
-   `https://github.com/xeind/rex-fingers/releases`; `ARCH` is `arm64`, or
-   `amd64` when `uname -m` prints `x86_64`:
+1. Build the program and clone the plugin at the same tag, so they match.
+   It needs Go 1.26 or newer and git. `V` is the newest tag,
+   `git ls-remote --tags --sort=-v:refname https://github.com/xeind/rex-fingers`:
    ```sh
-   mkdir -p ~/.config/rex/plugins
-   curl -fsSL "https://github.com/xeind/rex-fingers/releases/download/$V/rex-fingers-$V-darwin-$ARCH.tar.gz" \
-     | tar -xz -C ~/.config/rex/plugins
-   ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version   # prints $V
+   go install github.com/xeind/rex-fingers@$V
+   git clone --branch $V --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
+   "$(go env GOPATH)/bin/rex-fingers" version   # prints $V
    ```
-   On Linux there is no release: follow "From source" in `README.md`.
+   There is no prebuilt download; `docs/HISTORY.md` says why.
 2. In the user's Rex config, `~/.config/rex/init.lua` or a file it
    requires, add:
    ```lua
-   local dir = os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers"
-   local fingers = dofile(dir .. "/lua/rex-fingers/init.lua")
-   fingers.setup{ binary = dir .. "/bin/rex-fingers" }
+   local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
+   fingers.setup{
+     binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
+   }
    ```
-   `binary` must be an absolute path. Set `window_key = false` if the
-   user wants one key only.
+   `binary` must be an absolute path: the one step 1 printed the version
+   from. Set `window_key = false` if the user wants one key only.
 3. `rex config check`, then `rex config reload`.
 4. Confirm with `rex keymap | grep rex_fingers`: `alt+f` for the focused
    pane and `alt+shift+f` for every pane of the window.
@@ -93,7 +92,6 @@ go test ./...                       # unit tests: screen, patterns, hints, CLI, 
 sh scripts/smoke_test.sh            # gofmt, vet, build, -race, 10 s fuzz; no Rex needed
 sh scripts/test_in_pane.sh          # live cases; opens Rex sessions, overwrites the clipboard
 sh scripts/test_resources.sh        # leaks, memory, 2 to 12 panes; about 3 minutes; fails if hints are up in the app
-sh scripts/build_release.sh v0.3.0  # tarballs in dist/ for a tag on HEAD; publishes nothing
 go vet ./... && gofmt -l .
 go build -o bin/rex-fingers .       # bin/ is gitignored
 rex config check && rex config reload
