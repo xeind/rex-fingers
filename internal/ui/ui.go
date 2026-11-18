@@ -349,6 +349,7 @@ func (o *Overlay) draw() {
 	var b strings.Builder
 	b.WriteString("\x1b[H\x1b[0m")
 	off := o.offset()
+	drawn, full := 0, false
 	for i := off; i < len(o.scr.Lines) && i-off < o.rows; i++ {
 		if i > off {
 			b.WriteString("\r\n")
@@ -360,11 +361,24 @@ func (o *Overlay) draw() {
 		// After a row that fills the width the cursor is still on the
 		// last column while autowrap is off, so erasing to the end of
 		// the line would take that cell. A full row has nothing to erase.
-		if line.Column(len(line.Cells)) < o.cols {
+		full = line.Column(len(line.Cells)) >= o.cols
+		if !full {
 			b.WriteString("\x1b[K")
 		}
+		drawn++
 	}
-	b.WriteString("\x1b[0m\x1b[J")
+	// The rows below the last one drawn are erased. After a full row the
+	// cursor is on that row's last cell, and erasing from there would take
+	// the cell: a prompt with a clock at the right edge lost its last
+	// digit. So the erase starts on the next row, and when the full row is
+	// the last row of the pane there is nothing below to erase.
+	b.WriteString("\x1b[0m")
+	switch {
+	case !full:
+		b.WriteString("\x1b[J")
+	case drawn < o.rows:
+		b.WriteString("\r\n\x1b[J")
+	}
 	for _, t := range o.targets {
 		if !strings.HasPrefix(t.Hint, o.typed) {
 			continue

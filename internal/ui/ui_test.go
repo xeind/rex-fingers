@@ -203,3 +203,33 @@ func TestGutter(t *testing.T) {
 		t.Fatal("left mode never uses the gutter")
 	}
 }
+
+// After a row that fills the width the cursor stays on its last cell, so
+// an erase from the cursor takes that cell. The erase below the last row
+// must start on the next row, and must not run at all when the full row is
+// the last row of the pane.
+func TestDrawKeepsTheLastCellOfAFullLastRow(t *testing.T) {
+	set, err := patterns.Compile([]string{"path"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paint := func(vt string, rows, cols int) string {
+		var b strings.Builder
+		NewSet([]screen.Screen{screen.Parse(vt, 0)}, set, Options{Alphabet: "asdf"})[0].Paint(&b, rows, cols, "")
+		return b.String()
+	}
+	const eraseDisplay, eraseLine = "\x1b[J", "\x1b[K"
+
+	full := paint("/tmp/a\r\n0123456789", 2, 10)
+	if strings.Contains(full, eraseDisplay) {
+		t.Errorf("a full row on the last row of the pane: the frame erases the display: %q", full)
+	}
+	short := paint("/tmp/a\r\n01234", 2, 10)
+	if !strings.Contains(short, eraseLine+"\x1b[0m"+eraseDisplay) {
+		t.Errorf("a short last row: want erase line then erase display, got %q", short)
+	}
+	above := paint("/tmp/a\r\n0123456789", 4, 10)
+	if !strings.Contains(above, "\r\n"+eraseDisplay) || strings.Contains(above, "\x1b[0m"+eraseDisplay) {
+		t.Errorf("a full row above the last row of the pane: the erase must start on the next row, got %q", above)
+	}
+}
