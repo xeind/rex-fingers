@@ -213,12 +213,7 @@ func (p *paneSpec) locate() {
 	if err != nil {
 		return
 	}
-	all := screen.Parse(p.data, 0)
-	lines := make([]string, len(all.Lines))
-	for i, l := range all.Lines {
-		lines[i] = l.Text
-	}
-	p.offset = findOffset(lines, string(view), p.rows)
+	p.offset = findOffset(screen.Texts(p.data), string(view), p.rows)
 	p.alt = p.offset > 0
 	p.setPage()
 }

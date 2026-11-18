@@ -101,3 +101,19 @@ func TestParseAtReadsAPageAboveTheLastRows(t *testing.T) {
 		}
 	}
 }
+
+// Texts must give the same text per row as Parse, which the page search
+// used before; only the cells are not kept.
+func TestTextsMatchesParse(t *testing.T) {
+	vt := "\x1b[1m~\x1b[0m/x\x1b[3Cend\r\n\x1b]8;;http://a\x07link\x1b]8;;\x07 日本\r\n\r\nwarn ⚠️\ttab"
+	want := Parse(vt, 0)
+	got := Texts(vt)
+	if len(got) != len(want.Lines) {
+		t.Fatalf("Texts gave %d rows, Parse %d", len(got), len(want.Lines))
+	}
+	for i, l := range want.Lines {
+		if got[i] != l.Text {
+			t.Errorf("row %d: Texts %q, Parse %q", i, got[i], l.Text)
+		}
+	}
+}

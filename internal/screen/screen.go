@@ -93,6 +93,18 @@ func ParseAt(vt string, rows, offset int) Screen {
 	return s
 }
 
+// Texts returns the text of every row of a VT dump, scrollback included,
+// without keeping the cells or the VT of each row. A search over a long
+// scrollback needs only the text: Parse held 181 MB for 100,000 rows.
+func Texts(vt string) []string {
+	parts := strings.Split(vt, "\r\n")
+	texts := make([]string, len(parts))
+	for i, p := range parts {
+		texts[i] = textOf(cellsOf(p))
+	}
+	return texts
+}
+
 // Column returns the terminal column, counted from 0, where cell i of the
 // line starts.
 func (l Line) Column(i int) int {
