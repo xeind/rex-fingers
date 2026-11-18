@@ -20,9 +20,11 @@ configure, extend, or debug it.
    `binary` must be an absolute path.
 4. `rex config check`, then `rex config reload`.
 5. Confirm with `rex keymap | grep rex_fingers`: `alt+f` by default, and
-   `overlay = "float"`. Pane mode is opt-in because Rex for Mac shows a
-   popup listing the key mode's bindings; the user turned it down
-   2026-11-07.
+   `overlay = "float"`. Pane mode is opt-in. It used a key mode, and Rex
+   for Mac showed a popup listing the mode's bindings; the user turned it
+   down 2026-11-07. It now binds function keys and no mode. The user
+   confirmed on 2026-11-18 (build 2018) that no popup shows, and runs
+   `overlay = "pane"` on `alt+f` and window scope on `alt+shift+f`.
 
 Every option and its default is in `README.md` under Configuration. A
 walkthrough with a check per step is `docs/CONFIGURING.md`. Unknown option
@@ -62,14 +64,23 @@ pane. The action:
 2. Runs `rex-fingers draw --begin --pid P --vt-file F --rows N --cols M`
    through `rex.exec`. The program finds the foreground process's tty
    and writes the dimmed screen with hints straight into it.
-3. Enters the exclusive key mode `fingers`. Each hint letter is bound
-   there to `rex_fingers_key`, plain and with each modifier whose action
-   is set. The action runs `rex-fingers press --tty T --typed ... --key K`
-   for each key; the program repaints, or on a full hint restores the pane
-   and runs the action. `Escape`, `q`, and `Ctrl+C` run
-   `rex_fingers_cancel`, which runs `rex-fingers restore`.
+3. Stores the run in `state[block_id]`. There is no key mode. `setup`
+   binds each hint letter, plain and with each modifier whose action is
+   set, as a Lua function through `rex.bind(key, fn)`; Rex cannot bind a
+   key while an action runs (see the facts below). With a run on the
+   focused pane, `press` runs `rex-fingers press --tty T --typed ... --key
+   K` and returns `true`; the program repaints, or on a full hint
+   restores the pane and runs the action. `Escape`, `q`, and `Ctrl+C` run
+   `finish` with restore. `Enter`, `Space`, and the letters that are not
+   hints return `true` and do nothing, so they do not type into the pane.
+   With no run, every one of these functions returns nothing and Rex
+   sends the key to the pane. `ctrl+b`, `key`, and `window_key` stay
+   unbound, as they start sequences. The action `rex_fingers_cancel`
+   restores the pane from the palette or the CLI. The trigger key
+   restores a run that is up.
 4. A run can end without restore: a config reload or an app restart
-   drops the mode, and the hints stay painted. So `draw` writes
+   drops the Lua record of the run, and the hints stay painted, and the
+   keys pass through. So `draw` writes
    `$TMPDIR/rex-fingers-<tty>.run.json`: the capture paths, the pane's
    modes, the letters typed, and the text it painted (`ui.Painted`).
    `press` rewrites it on a repaint; `restoreAll` deletes it. The next
@@ -108,8 +119,8 @@ tty and the hint count; `press` returns `done`, `typed`, and `paste`.
 
 The `scope = "window"` argument, bound by `window_key`, always takes the
 in-pane path, whatever `overlay` says: a float covers one pane, and only
-the key mode lets one key reach every pane. So the mode and its actions
-are registered for both overlays. With it, the action
+the in-pane keys let one key reach every pane. So the keys are bound for
+both overlays. With it, the action
 does the same for every terminal block of the window at once. It reads
 them from `layer.blocks[]` with `creator_name == "com.superlogical.terminal"`,
 puts the focused block first, and passes one `--pane pid=,vt=,rows=,cols=,cursor=,wrap=`
@@ -169,9 +180,10 @@ at column 80. That is a test artifact. Only a real key press in the app
 sizes the overlay, so layout questions need the user's eyes or a
 screenshot.
 
-The in-pane path needs a client for the key mode, so a headless session
-cannot press a hint. It can draw and restore. `testdata/width-cases.txt`
-holds one line per character-width case:
+A headless session has no app, but `client.key` sends a key press to the
+server's key functions, so it can press a hint. The `keys` case in
+`scripts/test_in_pane.sh` does that. `testdata/width-cases.txt` holds one
+line per character-width case:
 
 ```sh
 S=$(rex new flag-probe --json | jq -r .session_id); sleep 1.5
@@ -185,8 +197,16 @@ rex capture -s $S -b $B --format=text --trim | head -9   # every row: text, spac
 rex kill $S
 ```
 
-`rex keymap | grep -c fingers/` counts the mode's bindings; the app lists
-every one while the mode is active.
+There is no `fingers` key mode. `rex keymap --json | jq '[.bindings[] |
+select(.keys[0] | startswith("fingers/"))] | length'` must print 0, and
+`.modes` must not list `fingers`. Do not use `grep -c fingers/`: it also
+matches the source column, `rex-fingers/lua/...`.
+
+To press a key headlessly, call `client.key`; `rex api call -s $S client.key
+'{"session_id":"'$S'","block_id":"'$B'","key":{"key":"escape","mods":"","consumed_mods":"","text":"","unshifted_codepoint":27,"composing":false,"action":"press"}}'`
+prints `handled`. It is `true` when a key function took the key, and
+`false` when the key went on to the pane, where it is typed. Names are W3C
+codes in snake_case: `key_a`, `enter`, `escape`.
 
 Stale hints: `draw --begin` as above, then `rex do rex_fingers_cancel -s
 $S -b $B`. The pane must show no hint letters and `modes` must report 7
@@ -202,8 +222,9 @@ its own capture and `--pane` spec, and one `draw` call takes both. A
 `press --key` with the same specs needs no client. Check that the hint
 letters differ between the panes, that `press` reports the right `pane`
 index and clipboard text, and that both panes are restored. Through Lua,
-`rex do rex_fingers -s $S -b $B scope=window` runs up to the key mode and
-then restores, since a headless session has no client to enter it.
+`rex do rex_fingers -s $S -b $B scope=window` draws the hints and stores the
+run. The hints stay until a key press, `rex do rex_fingers_cancel`, or the
+trigger key restores the pane.
 
 ## Facts the code depends on
 
@@ -217,10 +238,9 @@ then restores, since a headless session has no client to enter it.
   pane mode, so the app's own copy feedback fires when it has one.
 - A pane whose program exits within a moment stays open in Rex. The
   program lives at least 400 ms.
-- `rex do rex_fingers` from the CLI: `rex.client.queue` succeeds and the
-  app refuses the queued `client.mode.enter` after the action returns, so
-  no restore runs and the hints stay. A key press in the app works. The
-  run file above covers the leftover.
+- `rex do rex_fingers scope=window` from the CLI draws hints and stores the
+  run; no client is needed, since nothing enters a key mode. Until 2026-11-18
+  the action queued `client.mode.enter`, which the app refused from the CLI.
 - With autowrap off, the cursor stays on the last column after a row that
   fills the width, so erase-to-end-of-line there takes that cell. `ui.draw`
   skips `\x1b[K` on a full row.
@@ -257,18 +277,26 @@ then restores, since a headless session has no client to enter it.
   `grapheme_cluster`; it was off in every pane measured. With it on,
   Ghostty would draw a flag pair or a ZWJ sequence as one 2-column cell,
   and the parser does not handle that yet.
-- A key mode belongs to one client, and a mode binding must name an
-  action; a Lua function binding is not allowed in a mode. The action's
-  `ctx` does not say which key ran it, so each hint key needs its own
-  binding with `{ key, mod }` args. The app lists every binding of the
-  active mode as a row of title plus args, so the mode binds only the
-  letters and modifiers that can be pressed. No setting hides that
-  panel. The user default `Workspace.showsKeySequenceHints` in
-  `com.superlogical.rex`, Settings > Terminal > Keyboard > Show key
-  sequence hints, hides only the panel for a pending prefix such as
-  Ctrl+B, and the app reads it at launch only. Tested 2026-11-07 on
-  build 1825 and 2026-11-11 on build 1932: with it off and the app
-  relaunched, the mode list still shows.
+- The plugin once used a key mode, `fingers`, with one `rex_fingers_key`
+  binding per letter and modifier. A mode binding must name an action, and
+  the action's `ctx` does not say which key ran it, so each key needed its
+  own binding with `{ key, mod }` args. The app listed every binding of the
+  active mode as a row of title plus args, 52 rows and "26 more", and no
+  setting hid that panel. `Workspace.showsKeySequenceHints` (Settings >
+  Terminal > Keyboard > Show key sequence hints) hides only the panel for a
+  pending prefix such as Ctrl+B. Tested with it off on builds 1825, 1932,
+  and 2018 (2026-11-18): the mode list still showed. `rex.mode` takes only
+  `exclusive`, and no `rex.action` field hides a binding.
+- Function key bindings, tested 2026-11-18 on build 2018 through
+  `client.key`: `rex.bind(key, fn)` at config load runs `fn(ctx, ev)` with
+  `ctx.block_id` and `ev.keybinding` (`z`, `shift+z`, `ctrl+y`). Returning
+  `true` takes the key; returning nothing sends it to the pane. Binding
+  from inside an action or a key function reports success but binds
+  nothing, so every key is bound at load. Only bound keys reach Lua; the
+  cost is about 2 ms on the server. A key function that errors or runs
+  over 5 seconds drops the key. `rex.client.queue` is for actions only.
+  In the app with `overlay = "pane"` (build 2018, 2026-11-18), the user saw
+  no popup.
 
 ## Rules
 
@@ -279,5 +307,5 @@ then restores, since a headless session has no client to enter it.
 - Options are declared once in `defaults` in `init.lua` and documented in
   `README.md` under Configuration, with the same names and defaults.
 - Keep tmux-fingers' names and defaults where Rex allows it.
-- Tested against Rex for Mac 0.1.0 (1825), CLI `0.0.1793741575-g1b6654`.
+- Tested against Rex Beta for Mac 0.1.0 (2018), CLI `0.1.0-preview.15`.
   Rex is in beta; recheck the facts above when a build changes behavior.

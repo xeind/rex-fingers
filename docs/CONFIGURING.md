@@ -157,8 +157,8 @@ rex.bind("alt+o", "rex_fingers", { patterns = "file-line,path", main_action = "x
 
 The arguments are `patterns`, `main_action`, `shift_action`, `ctrl_action`,
 `alt_action`, `copy_command`, and `scope = "window"`. Window scope hints
-every pane of the window; it uses a Rex key mode, and Rex for Mac shows a
-popup listing that mode's keys while it runs.
+every pane of the window. It draws in the panes and reads the hint keys
+through key functions, with no Rex key mode.
 
 Check: `rex actions | grep rex_fingers` lists them, and each key shows only
 its own matches.

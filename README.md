@@ -97,8 +97,8 @@ A step-by-step walkthrough is [docs/CONFIGURING.md](docs/CONFIGURING.md).
 fingers.setup{
   binary = "",                    -- absolute path of rex-fingers; set it, or a login shell starts first
   key = "alt+f",                  -- any Rex key or sequence; false binds nothing
-  window_key = false,             -- a key that hints every pane of the window; shows Rex's key list popup
-  overlay = "float",              -- "float": a floating pane over yours; "pane": draw into the pane, with the popup
+  window_key = false,             -- a key that hints every pane of the window
+  overlay = "float",              -- "float": a floating pane over yours; "pane": draw into the pane
   patterns = {},                  -- built-in names to enable; empty is all but digit
   extra = {},                     -- more patterns, Go regexps; (?<match>...) picks the copied part
   main_action = ":copy:",         -- hint
@@ -130,20 +130,23 @@ white, 8 to 15 the bright versions. `38;5;N` is text, `48;5;N` background,
 **Overlay.** `float`, the default, opens a floating pane over yours, two
 rows shorter, and reads the keys itself. `pane` draws into your pane, so
 every row stays visible and output printed while the hints are up is kept.
-It puts Rex in a key mode named `fingers`, and Rex for Mac shows a popup
-listing that mode's keys; no setting hides it. Fewer letters in
-`alphabet`, or empty `shift_action` and `ctrl_action`, make the list
-shorter.
+It uses no Rex key mode, so Rex lists no keys. Instead the plugin binds
+the hint letters as key functions when the config loads. Rex cannot bind a
+key while the hints are up. With no hints up, each of these keys returns
+nothing and Rex sends it to the pane as usual. While the hints are up on
+the focused pane, they take the hint letters, Enter, Space, and every
+other letter, so nothing types into the pane. `Escape`, `q`, and `Ctrl+C`
+cancel. The plugin never binds `Ctrl+B`, which is tmux's prefix, or the
+keys `key` and `window_key` name.
 
 > **Note.** I want `pane` to be the default: hints drawn in your own pane,
-> no rows hidden. It still has bugs, and the popup gets in the way. Once
-> Rex adds an option to hide a key mode's popup, `pane` becomes the
-> default.
+> no rows hidden. It still has bugs, so `float` stays the default.
 
 **Window scope.** `window_key`, or `scope = "window"` on a binding, hints
 every pane of the window at once and pastes into the pane you pressed the
-key in. A float covers one pane, so window scope always draws in the panes
-and uses the key mode, popup included, whatever `overlay` says.
+key in. A float covers one pane, so window scope always draws in the panes,
+whatever `overlay` says. The keys act on the focused pane's run, so a
+pane outside the window keeps its keys.
 
 **Per-key arguments.** `patterns`, the four actions, and `copy_command` can
 also be passed on a binding, for that key only, plus `scope = "window"`:
@@ -186,15 +189,12 @@ rex_fingers` shows whether the binding loaded.
 **A blank pane shows for a moment.** The first run after a build is slow
 while macOS checks the binary. If every run is slow, `binary` is unset.
 
-**A popup lists dozens of keys.** That is Rex's list for the key mode,
-used by `overlay = "pane"` and window scope. Use `overlay = "float"` and
-leave `window_key` unset to avoid it.
-
 **Hint letters stayed in the pane.** With `overlay = "pane"` or window
-scope, a config reload or an app restart while the hints were up ended
-the key mode without putting the pane back.
-Press the key again, or `Escape`. The program restores the pane from the
-capture it took, as long as the pane still shows what it drew.
+scope, a config reload or an app restart while the hints were up dropped
+the run without putting the pane back. The hint keys then pass through, so
+`Escape` does nothing. Press the key again, then `Escape`. The program
+restores the pane from the capture it took, as long as the pane still shows
+what it drew. `rex do rex_fingers_cancel` does the same from a shell.
 
 **Hint letters stayed in the scrollback.** The pane printed while the
 hints were up, such as a running build or Claude Code, and the painted
