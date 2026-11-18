@@ -25,16 +25,21 @@ only the unit tests have run there.
    holds the program and the plugin:
 
    ```sh
-   V=v0.3.0; ARCH=arm64     # amd64 on an Intel Mac
+   V=v0.3.0; ARCH=$(uname -m | sed 's/x86_64/amd64/')
    mkdir -p ~/.config/rex/plugins
    curl -fsSL "https://github.com/xeind/rex-fingers/releases/download/$V/rex-fingers-$V-darwin-$ARCH.tar.gz" \
      | tar -xz -C ~/.config/rex/plugins
    ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version
    ```
 
-   The last command prints the version. If you download the tarball with
-   a browser instead, run `xattr -d com.apple.quarantine` on the program
-   first.
+   The last command prints the version. The second line picks the
+   tarball for your Mac, Apple silicon or Intel.
+
+   If you download the tarball with a browser instead, unpack it into
+   `~/.config/rex/plugins`, then run
+   `xattr -dr com.apple.quarantine ~/.config/rex/plugins/rex-fingers`.
+   The program is not notarized, and macOS stops a quarantined copy with
+   no message.
 
 2. Add this to `~/.config/rex/init.lua`:
 
@@ -55,11 +60,13 @@ You need Go 1.26 or newer; an older Go downloads a newer toolchain before
 it builds.
 
 ```sh
-go install github.com/xeind/rex-fingers@latest
-git clone https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
+V=v0.3.0
+go install github.com/xeind/rex-fingers@$V
+git clone --branch $V --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
 ```
 
-In step 2, set `binary` to the program `go install` built, which is
+Both commands name the same tag, so the program and the plugin match. In
+step 2, set `binary` to the program `go install` built, which is
 `os.getenv("HOME") .. "/go/bin/rex-fingers"` unless you set `GOPATH`.
 
 ## Copy to agent

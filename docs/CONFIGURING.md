@@ -31,7 +31,7 @@ tmux-fingers user finds every option mapped in
 One tarball holds both. Unpack it next to your config:
 
 ```sh
-V=v0.3.0; ARCH=arm64     # amd64 on an Intel Mac
+V=v0.3.0; ARCH=$(uname -m | sed 's/x86_64/amd64/')
 mkdir -p ~/.config/rex/plugins
 curl -fsSL "https://github.com/xeind/rex-fingers/releases/download/$V/rex-fingers-$V-darwin-$ARCH.tar.gz" \
   | tar -xz -C ~/.config/rex/plugins
