@@ -122,8 +122,6 @@ local function open_floats(session_id, block_id)
   return {}
 end
 
--- capture writes the pane's screen as VT to a temporary file before the
--- floating pane opens, so the program draws as soon as it starts.
 -- dump writes one format call on a pane, read in blobs if it is large, to
 -- a temp file and returns the path. target holds session_id and block_id.
 local function dump(target, format_args)
@@ -145,6 +143,8 @@ local function dump(target, format_args)
   return path
 end
 
+-- capture writes the pane's screen to temporary files before the program
+-- starts, so the program draws as soon as it starts.
 local function capture(ctx)
   local size, err = rex.block.call(terminal, "size", { session_id = ctx.session_id, block_id = ctx.block_id })
   if not size then error(err, 0) end

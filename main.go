@@ -1,10 +1,13 @@
 // rex-fingers shows letter hints over the paths, URLs, hashes, and other
 // strings on a Rex pane, and copies the one you pick, like tmux-fingers.
 //
-// It runs inside a floating pane that the Lua plugin opens over the target
-// pane. Usage:
+// The Lua plugin runs it in one of two ways. With overlay = "pane", draw,
+// press, and restore write the hints into the pane's own tty. With
+// overlay = "float", show runs in a floating pane that the plugin opens
+// over the target pane. Usage:
 //
 //	rex-fingers show --session SESSION --block BLOCK [flags]
+//	rex-fingers draw|press|restore --vt-file FILE --rows N --tty PATH|--pid N [flags]
 //	rex-fingers patterns
 //	rex-fingers layouts
 package main
