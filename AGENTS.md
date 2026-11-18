@@ -17,18 +17,23 @@ configure, extend, or debug it.
    local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
    fingers.setup{
      binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
-     window_key = "alt+shift+f",
    }
    ```
-   `binary` must be an absolute path. `window_key` hints every pane of the
-   window; leave it out if the user wants one key only.
+   `binary` must be an absolute path. Set `window_key = false` if the
+   user wants one key only.
 4. `rex config check`, then `rex config reload`.
-5. Confirm with `rex keymap | grep rex_fingers`: `alt+f` by default, and
-   `overlay = "float"`. Pane mode is opt-in. It used a key mode, and Rex
-   for Mac showed a popup listing the mode's bindings; the user turned it
-   down 2026-11-07. It now binds function keys and no mode. The user
-   confirmed on 2026-11-18 (build 2018) that no popup shows, and runs
-   `overlay = "pane"` on `alt+f` and window scope on `alt+shift+f`.
+5. Confirm with `rex keymap | grep rex_fingers`: `alt+f` for the focused
+   pane and `alt+shift+f` for every pane of the window.
+
+The defaults since 2026-11-18 are `overlay = "pane"`, `window_key =
+"alt+shift+f"`, and `follow_scroll = false`. Pane mode was opt-in before:
+it used a key mode, Rex for Mac showed a popup listing the mode's
+bindings, and the user turned it down 2026-11-07. It now binds function
+keys and no mode, and the user confirmed on build 2018 that no popup
+shows. It is the default because it hides no rows and is the path the
+live suite covers. `follow_scroll` stays off: it takes the clipboard for
+half a second, loses a copied image, and needs the server on the app's
+machine.
 
 Every option and its default is in `README.md` under Configuration. A
 walkthrough with a check per step is `docs/CONFIGURING.md`. Unknown option
@@ -50,9 +55,10 @@ in their Rex config. For each change:
 | The user wants | Set in `setup` |
 | --- | --- |
 | A different key | `key = "alt+g"`. Any Rex key or sequence works, such as tmux-fingers' `"ctrl+b>shift+f"`. |
-| A key on every pane | `window_key = "alt+shift+f"` |
+| Another key for every pane, or none | `window_key = "alt+g"`, or `false` |
 | No key from the plugin | `key = false`, then `rex.bind("alt+f", "rex_fingers")` in their own bindings |
-| Hints drawn in their own pane, not a float | `overlay = "pane"` |
+| Hints in a floating pane that never writes to their pane | `overlay = "float"`. It hides two rows. |
+| Hints on the rows the focused pane is scrolled to | `follow_scroll = true`, with `overlay = "pane"`. Tell them the cost: copy mode flashes, the clipboard is saved and restored as text, and the server must run on the app's machine. |
 | Other hint letters | `keyboard_layout = "colemak-homerow"`, from `rex-fingers layouts`; or `alphabet = "asdfghjkl"`, which wins over the layout |
 | Hint on the other end of a match | `hint_position = "right"` or `"gutter"` |
 | Other colors | `hint_style` and `highlight_style`, SGR with palette slots such as `"1;38;5;0;48;5;13"`. Use slots, never hex, so the theme applies. |
@@ -149,9 +155,66 @@ pane. The action:
    that prints a line every 300 ms: draw once scrollback exists, wait
    3 s, cancel, and `rex capture --format=text` shows hint letters on the
    rows that scrolled off.
+6. A pane scrolled up shows its scrollback, and the steps above hint its
+   live screen, out of view. With `follow_scroll = true` the app copies
+   the rows each pane shows and the program takes them from the clipboard,
+   since Rex reports no scroll position (`follow_scroll` in `init.lua`,
+   `await.go`):
+   - `start_panes` with `await = 1` runs `draw --begin --await-views 1`
+     with one `--pane` spec per pane, the focused pane first. That call
+     saves the clipboard to a file, puts a marker text on it, writes
+     `$TMPDIR/rex-fingers-<tty>.wait` per pane, starts a copy of itself in
+     its own session, and returns the ttys at once. Lua stores the run
+     then.
+   - Lua queues `pane.copy_mode.enter`, `move screen_top`, `select line`,
+     `move screen_bottom`, and `yank` with `rex.client.queue`, then
+     `enter`, `select char`, and `exit`. The app runs them after the
+     action returns. The last three drop the selection the yank leaves on
+     screen, a grey box over the whole pane; `enter` and `exit` alone do
+     not.
+   - The background copy polls the clipboard. A text other than the marker
+     is the rows of the next awaited pane, in the order of the specs; it
+     writes them to that pane's view file. An empty clipboard counts only
+     when it stays empty, since a writer clears before it fills. After the
+     awaited panes, or 3 s with no copy, it puts the saved clipboard back
+     and draws.
+   - Only the focused pane is awaited. Copy mode acts on the focused pane
+     alone, and in window scope the other panes are hinted on their live
+     screens. Reading every pane with `pane.focus_next` between the copies
+     worked through `rex -C APP do`, where the CLI runs the queue one
+     action per call: 1.2 s for four panes. On a key press the app runs
+     the whole queue at once, the focus has not moved when the next copy
+     runs, and every copy was of the first pane. `--await-views N` still
+     takes a count, for a caller that can pace the copies.
+   - Until the frame is up, `press` finds the wait file and no run file
+     and ignores the key. `restore` deletes the wait file, which calls the
+     run off: the background copy then draws nothing and deletes the
+     captures. A pane with no run file is not repainted.
+   The first version had the app send a key, `f19`, back to a Lua key
+   function after each copy. A key sent to a pane moves a scrolled pane
+   to its last row, so the pane flickered to the bottom before the frame
+   came up and stayed at the bottom after the run. Nothing calls back
+   into Lua now.
+   `draw --begin` looks the rows up in the capture (`paneSpec.locate`,
+   `findOffset`), compared without spaces or line breaks, since the copy
+   joins wrapped rows and drops blank rows at the foot. A match above the
+   live screen sets `offset` and `alt`; none means the live screen. The
+   same rows can stand in several places, as after a command run twice;
+   such pages read the same, so the one whose rows line up with the copied
+   lines is taken, then the nearest. Until 2026-11-18 several matches meant
+   the live screen, and a scrolled pane then looked as if it had jumped to
+   the bottom. An `alt` pane is painted on the alternate screen
+   (`inpane.BeginAlt`), which shows wherever the pane is scrolled, and
+   `inpane.RestoreAlt` leaves it with no repaint. `runState` carries
+   `offset` and `alt` to `press` and `restore`. A scrolled pane loses what
+   its program prints during the run; that is the cost item 5 names, paid
+   only by panes that are scrolled. A call with origin `api` or `cli`,
+   such as `rex do` from a shell, has no app and hints the live screen;
+   `follow_scroll=true` on the call overrides that, for `rex -C APP do`.
 
 The in-pane subcommands print one JSON object each. `draw` returns the
-tty and the hint count; `press` returns `done`, `typed`, and `paste`.
+tty, the hint count, and `scrolled`, the number of panes on the alternate
+screen; `press` returns `done`, `typed`, and `paste`.
 
 The `scope = "window"` argument, bound by `window_key`, always takes the
 in-pane path, whatever `overlay` says: a float covers one pane, and only
@@ -171,8 +234,8 @@ block, and `finish` clears and restores them all.
 | Path | Holds |
 | --- | --- |
 | `main.go` | CLI: `show`, `patterns`, `layouts`, `version`; action dispatch |
-| `pane.go` | CLI: `draw`, `press`, `restore` for `overlay = "pane"`, one pane or several `--pane` specs; each prints one JSON object; `runState` and `recover` for a run left without restore |
-| `internal/inpane` | `Begin` and `Restore` sequences, `TTY(pid)` to find the pane's tty |
+| `pane.go` | CLI: `draw`, `press`, `restore` for `overlay = "pane"`, one pane or several `--pane` specs; each prints one JSON object; `runState` and `recover` for a run left without restore; `locate` and `findOffset` for the page a scrolled pane shows |
+| `internal/inpane` | `Begin` and `Restore` sequences, `BeginAlt` and `RestoreAlt` for a scrolled pane, `TTY(pid)` to find the pane's tty |
 | `internal/screen` | VT dump to lines of cells; `Parse`, `Line.Column`, `Line.CellAt` |
 | `internal/patterns` | `Builtin` map, `Default` (all but `digit`), `Weight` per pattern for hint order, `Compile`, `Set.Find` with leftmost-longest overlap rule |
 | `internal/hints` | `Generate` prefix-free hints; `Layouts` and `Alphabet` |
@@ -197,7 +260,9 @@ rex server logs | grep -i lua       # Lua errors the check misses
 
 ## Test loop without a screen
 
-An agent cannot see the overlay. Drive it through the Rex CLI:
+An agent cannot see the overlay. Drive it through the Rex CLI. This loop
+reads the floating pane, so the loaded config needs `overlay = "float"`;
+`scripts/test_in_pane.sh` covers the default, `overlay = "pane"`:
 
 ```sh
 S=$(rex new fingers-test --json | jq -r .session_id)
@@ -333,6 +398,29 @@ trigger key restores the pane.
   nothing, so every key is bound at load. Only bound keys reach Lua; the
   cost is about 2 ms on the server. A key function that errors or runs
   over 5 seconds drops the key. `rex.client.queue` is for actions only.
+- Scroll position, tested 2026-11-18 on build 2018. No block method,
+  `session.view` field, or terminal event reports it, and `rex.on` handlers
+  in `init.lua` do nothing in this build. The app's copy mode reads the
+  viewport: a line selection from `screen_top` to `screen_bottom`, yanked,
+  puts the visible rows on the clipboard. App actions act on the focused
+  pane and ignore a `block_id`. Queued app actions run after the action
+  returns, and the app cannot run a config action from the queue
+  ("does not offer"); `pane.send_key` with a key bound to a function is
+  the one way back into Lua, and that function's `ctx.block_id` is the
+  focused pane. `pane.send_key` moves a scrolled pane to the bottom, as
+  any key does, which is why the plugin no longer uses it. Entering and
+  leaving the alternate screen alone keeps the scroll position: a pane
+  scrolled to a row was at that row after a draw and a restore with no
+  key sent. `ctx.client_id` is set for `rex do` from a shell too, with
+  `origin = "api"`; a key press has `origin = "key"`, so the origin tells
+  the two apart. The CLI needs Remote Control on in the app to run app
+  actions; a key press ran the queued copies with the plugin as it was on
+  2026-11-18. With the key sent back, hints were up about 1.2 s after the
+  trigger for one pane and 4.8 s for four; with the program waiting on the
+  clipboard, 580 ms for one pane and 1.2 s for four. The time is the
+  app's: each copy-mode action took 120 to 200 ms and `pane.focus_next`
+  400 to 1000 ms through `client.perform`. `pane.focus_next` wraps and is
+  back at the first block after one step per block.
   In the app with `overlay = "pane"` (build 2018, 2026-11-18), the user saw
   no popup.
 
