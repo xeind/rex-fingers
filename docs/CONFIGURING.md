@@ -26,31 +26,29 @@ Layouts leave out `c`, `i`, `m`, `q`, and `n`, as tmux-fingers does. A
 tmux-fingers user finds every option mapped in
 [TMUX-FINGERS.md](TMUX-FINGERS.md).
 
-## 1. Build the program
+## 1. Get the program and the plugin
+
+One tarball holds both. Unpack it next to your config:
 
 ```sh
-go install github.com/xeind/rex-fingers@latest
-"$(go env GOPATH)/bin/rex-fingers" version
+V=v0.3.0; ARCH=arm64     # amd64 on an Intel Mac
+mkdir -p ~/.config/rex/plugins
+curl -fsSL "https://github.com/xeind/rex-fingers/releases/download/$V/rex-fingers-$V-darwin-$ARCH.tar.gz" \
+  | tar -xz -C ~/.config/rex/plugins
+~/.config/rex/plugins/rex-fingers/bin/rex-fingers version
 ```
 
-Check: the second command prints a version number. Note the full path it
-ran from; the next step needs it.
+Check: the last command prints the version, such as `v0.3.0`. To build
+from source instead, see [Install](../README.md#install) in the README.
 
 ## 2. Load the plugin
 
-Clone it next to your config:
-
-```sh
-git clone https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
-```
-
-Add to `~/.config/rex/init.lua`, with the path from step 1 as `binary`:
+Add to `~/.config/rex/init.lua`:
 
 ```lua
-local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
-fingers.setup{
-  binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
-}
+local dir = os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers"
+local fingers = dofile(dir .. "/lua/rex-fingers/init.lua")
+fingers.setup{ binary = dir .. "/bin/rex-fingers" }
 ```
 
 ```sh
@@ -200,9 +198,10 @@ Check: a pick lands on your local clipboard.
 ## A complete example
 
 ```lua
-local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
+local dir = os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers"
+local fingers = dofile(dir .. "/lua/rex-fingers/init.lua")
 fingers.setup{
-  binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
+  binary = dir .. "/bin/rex-fingers",
   key = false,
   keyboard_layout = "qwerty-homerow",
   hint_style = "1;38;5;0;48;5;13",

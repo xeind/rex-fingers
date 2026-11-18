@@ -14,31 +14,53 @@ strings on a [Rex](https://www.superlogical.com/rex) pane. Type a hint and
 the match goes to your clipboard. It ports
 [tmux-fingers](https://github.com/Morantron/tmux-fingers) to Rex.
 
-You need Go 1.26 or newer, the `rex` command, and a clipboard command
-(`pbcopy`, `wl-copy`, `xclip`, or `xsel`). Rex is in beta; this was tested
-with Rex for Mac 0.1.0 (2027). An older Go downloads a newer toolchain
-before it builds.
+You need the `rex` command and a clipboard command (`pbcopy`, `wl-copy`,
+`xclip`, or `xsel`). Rex is in beta; this was tested with Rex for Mac
+0.1.0 (2027). The releases are for macOS. On Linux, build from source;
+only the unit tests have run there.
 
 ## Install
 
-1. Install the program and clone the plugin:
+1. Download a release and unpack it next to your Rex config. The tarball
+   holds the program and the plugin:
 
    ```sh
-   go install github.com/xeind/rex-fingers@latest
-   git clone https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
+   V=v0.3.0; ARCH=arm64     # amd64 on an Intel Mac
+   mkdir -p ~/.config/rex/plugins
+   curl -fsSL "https://github.com/xeind/rex-fingers/releases/download/$V/rex-fingers-$V-darwin-$ARCH.tar.gz" \
+     | tar -xz -C ~/.config/rex/plugins
+   ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version
    ```
 
-2. Add this to `~/.config/rex/init.lua`. `binary` is an absolute path to
-   the program; `go install` puts it in `~/go/bin` unless you set `GOPATH`.
+   The last command prints the version. If you download the tarball with
+   a browser instead, run `xattr -d com.apple.quarantine` on the program
+   first.
+
+2. Add this to `~/.config/rex/init.lua`:
 
    ```lua
-   local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
-   fingers.setup{
-     binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
-   }
+   local dir = os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers"
+   local fingers = dofile(dir .. "/lua/rex-fingers/init.lua")
+   fingers.setup{ binary = dir .. "/bin/rex-fingers" }
    ```
 
 3. Run `rex config check`, then `rex config reload`.
+
+After the download, rex-fingers never reaches the network: it has no
+update check.
+
+### From source
+
+You need Go 1.26 or newer; an older Go downloads a newer toolchain before
+it builds.
+
+```sh
+go install github.com/xeind/rex-fingers@latest
+git clone https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
+```
+
+In step 2, set `binary` to the program `go install` built, which is
+`os.getenv("HOME") .. "/go/bin/rex-fingers"` unless you set `GOPATH`.
 
 ## Copy to agent
 
