@@ -15,9 +15,13 @@ configure, extend, or debug it.
    requires, add:
    ```lua
    local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
-   fingers.setup{ binary = os.getenv("HOME") .. "/go/bin/rex-fingers" }
+   fingers.setup{
+     binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
+     window_key = "alt+shift+f",
+   }
    ```
-   `binary` must be an absolute path.
+   `binary` must be an absolute path. `window_key` hints every pane of the
+   window; leave it out if the user wants one key only.
 4. `rex config check`, then `rex config reload`.
 5. Confirm with `rex keymap | grep rex_fingers`: `alt+f` by default, and
    `overlay = "float"`. Pane mode is opt-in. It used a key mode, and Rex
@@ -29,6 +33,38 @@ configure, extend, or debug it.
 Every option and its default is in `README.md` under Configuration. A
 walkthrough with a check per step is `docs/CONFIGURING.md`. Unknown option
 names make `setup` error, so read the list before adding one.
+
+## Change the keys or customize it for a user
+
+Ask what the user wants, then change only the `fingers.setup{ ... }` call
+in their Rex config. For each change:
+
+1. Before you pick a key, run `rex keymap` and check that nothing else
+   uses it.
+2. Edit the option. Show the user the diff.
+3. Run `rex config check`. Fix any error before you go on.
+4. Ask the user before `rex config reload`.
+5. Run `rex keymap | grep rex_fingers` and tell the user which keys are
+   bound.
+
+| The user wants | Set in `setup` |
+| --- | --- |
+| A different key | `key = "alt+g"`. Any Rex key or sequence works, such as tmux-fingers' `"ctrl+b>shift+f"`. |
+| A key on every pane | `window_key = "alt+shift+f"` |
+| No key from the plugin | `key = false`, then `rex.bind("alt+f", "rex_fingers")` in their own bindings |
+| Hints drawn in their own pane, not a float | `overlay = "pane"` |
+| Other hint letters | `keyboard_layout = "colemak-homerow"`, from `rex-fingers layouts`; or `alphabet = "asdfghjkl"`, which wins over the layout |
+| Hint on the other end of a match | `hint_position = "right"` or `"gutter"` |
+| Other colors | `hint_style` and `highlight_style`, SGR with palette slots such as `"1;38;5;0;48;5;13"`. Use slots, never hex, so the theme applies. |
+| No dimming, or a flash on a pick | `dim = false`; `flash = true` |
+| Other actions per modifier | `main_action`, `shift_action`, `ctrl_action`, `alt_action`: `:copy:`, `:paste:`, `:open:`, `""`, or a shell command that reads the match on stdin |
+| Fewer or more patterns | `patterns = { "path", "url" }`; `extra = { [[\bISSUE-\d+\b]] }`; names from `rex-fingers patterns` |
+| One key for one job | `rex.bind("alt+u", "rex_fingers", { patterns = "url,markdown-url" })`, with `key = false` for the plain one if wanted |
+| A remote Rex server | `copy_command = "ssh my-laptop pbcopy"` |
+
+Layouts leave out `c`, `i`, `m`, `q`, and `n`, as tmux-fingers does. A
+tmux-fingers user finds every option mapped in
+`docs/TMUX-FINGERS.md`.
 
 ## How it works
 
@@ -149,7 +185,9 @@ block, and `finish` clears and restores them all.
 ## Commands
 
 ```sh
-go test ./...                       # unit tests: screen, patterns, hints
+go test ./...                       # unit tests: screen, patterns, hints, CLI, docs
+sh scripts/smoke_test.sh            # gofmt, vet, build, -race, 10 s fuzz; no Rex needed
+sh scripts/test_in_pane.sh          # live cases; opens Rex sessions, overwrites the clipboard
 go vet ./... && gofmt -l .
 go build -o bin/rex-fingers .       # bin/ is gitignored
 rex config check && rex config reload

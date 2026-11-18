@@ -9,46 +9,61 @@
 
 Short arms, long reach.
 
-Letter hints over the paths, URLs, hashes, and other strings on a
-[Rex](https://www.superlogical.com/rex) pane. Press a hint and the match is on
-your clipboard. A port of [tmux-fingers](https://github.com/Morantron/tmux-fingers)
-to Rex.
+rex-fingers puts letter hints over the paths, URLs, hashes, and other
+strings on a [Rex](https://www.superlogical.com/rex) pane. Type a hint and
+the match goes to your clipboard. It ports
+[tmux-fingers](https://github.com/Morantron/tmux-fingers) to Rex.
+
+You need Go 1.24 or newer, the `rex` command, and a clipboard command
+(`pbcopy`, `wl-copy`, `xclip`, or `xsel`). Rex is in beta; this was tested
+with Rex for Mac 0.1.0 (2018).
 
 ## Install
 
-```sh
-go install github.com/xeind/rex-fingers@latest
-git clone https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
+1. Install the program and clone the plugin:
+
+   ```sh
+   go install github.com/xeind/rex-fingers@latest
+   git clone https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
+   ```
+
+2. Add this to `~/.config/rex/init.lua`. `binary` is an absolute path to
+   the program; `go install` puts it in `~/go/bin` unless you set `GOPATH`.
+
+   ```lua
+   local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
+   fingers.setup{
+     binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
+     window_key = "alt+shift+f",
+   }
+   ```
+
+3. Run `rex config check`, then `rex config reload`.
+
+## Copy to agent
+
+Paste this into Claude Code, Codex, or OpenCode, and it installs rex-fingers
+for you.
+
+```text
+Install rex-fingers for me in Rex.
+Read the section "Install it for a user" in
+https://raw.githubusercontent.com/xeind/rex-fingers/main/AGENTS.md
+and follow it.
+In setup, give binary as an absolute path, and set window_key to "alt+shift+f".
+Run rex config check. Then ask me before you reload my config.
+Report which keys you bound: alt+f and alt+shift+f.
 ```
-
-```lua
--- ~/.config/rex/init.lua
-local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
-fingers.setup{
-  binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
-}
-```
-
-`binary` is where `go install` put the program, `$(go env GOPATH)/bin`,
-which is `~/go/bin` unless you changed it. Then `rex config check` and
-`rex config reload`. The key is <kbd>Alt-f</kbd>, <kbd>Option-f</kbd> on a
-Mac; `key` takes any Rex key or sequence, such as tmux-fingers'
-`ctrl+b>shift+f`.
-
-With [Amber](https://github.com/rawnly/rex-package-manager):
-
-```lua
-{ "xeind/rex-fingers", opts = { binary = os.getenv("HOME") .. "/go/bin/rex-fingers" } },
-```
-
-Needs Go 1.24 or newer, the `rex` command on the server's PATH, and a
-clipboard command: `pbcopy`, `wl-copy`, `xclip`, or `xsel`. Tested with Rex
-for Mac 0.1.0 (1825). Rex is in beta and its API moves between builds.
 
 ## Use
 
-Press <kbd>Alt-f</kbd>. Everything that is not a match dims and each match
-gets a one or two letter hint. Type the hint.
+| Key | Does |
+| --- | --- |
+| <kbd>Alt-f</kbd> | hint the focused pane |
+| <kbd>Alt-Shift-f</kbd> | hint every pane in the window |
+
+On a Mac, <kbd>Alt</kbd> is <kbd>Option</kbd>. Everything that is not a match
+dims, and each match gets a one or two letter hint. Type the hint:
 
 | Keys | Does |
 | --- | --- |
@@ -59,39 +74,14 @@ gets a one or two letter hint. Type the hint.
 | <kbd>q</kbd>, <kbd>Esc</kbd>, <kbd>Ctrl-c</kbd> | leave |
 | <kbd>Alt-f</kbd> again | leave, with `overlay = "float"` |
 
-The same text gets the same hint wherever it appears. With more matches than
-letters, some hints are two letters.
-
-## What gets a hint
-
-| Pattern | Example | Copies |
-| --- | --- | --- |
-| `path` | `/usr/local/bin/rex`, `~/.config/rex/init.lua` | the path |
-| `quoted-path` | `'/tmp/a b/c'` | the path without quotes |
-| `file-line` | `src/app.ts:10:5` | path and position |
-| `url` | `https://example.com/x?y=1`, `git@github.com:a/b.git` | the URL |
-| `markdown-url` | `[docs](https://example.com/docs)` | the URL only |
-| `email` | `someone@example.com` | the address |
-| `sha` | `deadbeefcafe1234` | the hash; needs a digit and must stand alone |
-| `uuid` | `3b241101-e2bb-4255-8caf-4136c566a962` | the UUID |
-| `hex` | `0x7ffee3` | the number |
-| `color` | `#c6b18e` | the color |
-| `ip`, `ipv6` | `10.0.0.42`, `fe80::1c3a:ff:fe12:3456%en0` | the address |
-| `semver` | `v2.1.318-beta.1` | the version |
-| `digit` | `8080` | numbers of four or more digits; off unless named in `patterns` |
-| `kubernetes`, `kubernetes-pod` | `pod/nginx-7xb2r`, `nginx-deployment-66b6c48dd5-7xb2r` | the resource or pod |
-| `git-status`, `git-status-branch` | `modified:   src/main.go` | the path or branch |
-| `diff` | `--- a/internal/ui/ui.go` | the path only |
-
-Where two patterns overlap, the leftmost and then the longest match wins.
-File:line matches, paths, and URLs get the first and shortest hints, then
-hashes and git paths, then the rest. `rex-fingers patterns` prints every
-expression.
+`rex-fingers patterns` lists what gets a hint. A paste from every-pane
+mode goes into the pane where you pressed the key.
 
 ## Configuration
 
-Every option, with its default. Unknown names fail at `rex config check`.
-A step-by-step walkthrough is [docs/CONFIGURING.md](docs/CONFIGURING.md).
+Every option, with its default. An unknown name fails `rex config check`.
+[docs/CONFIGURING.md](docs/CONFIGURING.md) walks through it, and
+[docs/TMUX-FINGERS.md](docs/TMUX-FINGERS.md) maps tmux-fingers options.
 
 ```lua
 fingers.setup{
@@ -109,8 +99,8 @@ fingers.setup{
   keyboard_layout = "qwerty",     -- which letters are hints; rex-fingers layouts lists the names
   alphabet = "",                  -- the hint letters themselves, overriding the layout
   hint_position = "left",         -- "left" or "right" end of the match, or the blank "gutter" before it, else its end
-  hint_style = "1;38;5;0;48;5;12",-- SGR for the hint letters
-  highlight_style = "1;38;5;12",  -- SGR for the rest of the match
+  hint_style = "",                -- SGR for the hint letters; empty means 1;38;5;0;48;5;12
+  highlight_style = "",           -- SGR for the rest of the match; empty means 1;38;5;12
   dim = true,                     -- dim everything that is not a match
   flash = false,                  -- show the pick in reverse video for 150 ms
   align = "bottom",               -- float only: the pane edge to keep, since the float is two rows shorter
@@ -118,107 +108,29 @@ fingers.setup{
 ```
 
 **Actions** are `:copy:`, `:paste:`, `:open:`, `""` for nothing, or a shell
-command run with `sh -c`, the match on standard input, `MODIFIER` and
-`HINT` in the environment, in the pane's directory. Every pick is copied
-first.
+command run with `sh -c`. The command reads the match on standard input and
+runs in the pane's directory, with `MODIFIER` and `HINT` in its
+environment. Every pick is copied first.
 
 **Styles** are the numbers inside `ESC [ ... m`. The defaults name palette
-slots, so they follow your theme: slot 0 is black, 1 to 7 red through
-white, 8 to 15 the bright versions. `38;5;N` is text, `48;5;N` background,
-`1` bold, `7` reverse.
+slots, so they follow your theme.
 
-**Overlay.** `float`, the default, opens a floating pane over yours, two
-rows shorter, and reads the keys itself. `pane` draws into your pane, so
-every row stays visible and output printed while the hints are up is kept.
-It uses no Rex key mode, so Rex lists no keys. Instead the plugin binds
-the hint letters as key functions when the config loads. Rex cannot bind a
-key while the hints are up. With no hints up, each of these keys returns
-nothing and Rex sends it to the pane as usual. While the hints are up on
-the focused pane, they take the hint letters, Enter, Space, and every
-other letter, so nothing types into the pane. `Escape`, `q`, and `Ctrl+C`
-cancel. The plugin never binds `Ctrl+B`, which is tmux's prefix, or the
-keys `key` and `window_key` name.
-
-> **Note.** I want `pane` to be the default: hints drawn in your own pane,
-> no rows hidden. It still has bugs, so `float` stays the default.
-
-**Window scope.** `window_key`, or `scope = "window"` on a binding, hints
-every pane of the window at once and pastes into the pane you pressed the
-key in. A float covers one pane, so window scope always draws in the panes,
-whatever `overlay` says. The keys act on the focused pane's run, so a
-pane outside the window keeps its keys.
-
-**Per-key arguments.** `patterns`, the four actions, and `copy_command` can
-also be passed on a binding, for that key only, plus `scope = "window"`:
-
-```lua
-fingers.setup{ binary = "...", key = false }
-rex.bind("alt+f", "rex_fingers")
-rex.bind("alt+u", "rex_fingers", { patterns = "url,markdown-url" })
-rex.bind("alt+o", "rex_fingers", { patterns = "file-line,path", main_action = "xargs -I{} rex run -- nvim {}" })
-```
-
-Coming from tmux-fingers: [docs/TMUX-FINGERS.md](docs/TMUX-FINGERS.md)
-maps every option.
+**Overlay.** `float` opens a floating pane over yours, two rows shorter.
+`pane` draws into your pane, so every row stays visible. Every-pane mode
+always draws in the panes.
 
 ## Limits
 
-- Matches are found on the visible screen, not in the scrollback.
-- With `overlay = "float"`, the floating pane in Rex for Mac is two rows
-  shorter than the pane; `align` picks which rows are hidden.
-- A wrapped path or URL is one match and copies whole, except when the
-  wrap falls right before a wide character such as an emoji.
-- No multi-select or jump mode. A pane's cursor cannot be moved from
-  outside in Rex.
-- On a remote Rex server, set `copy_command` to something that reaches
-  your clipboard, such as `ssh laptop pbcopy`.
-- With `overlay = "pane"` or window scope, a program may write to the
-  pane while the hints are up. A hint still copies; the hints stop
-  narrowing as you type, and the new output stays. When the run ends,
-  rows that still show hints are put back. Hint letters on a row the
-  program overwrote stay until something redraws that row. Rows that scrolled into the scrollback keep their hint
-  letters for good, since nothing written to a terminal reaches its
-  scrollback. A float never writes to the pane, so it leaves nothing
-  behind.
-
-## Troubleshooting
-
-**Nothing happens on the key.** `rex config check`, then `rex keymap | grep
-rex_fingers` shows whether the binding loaded.
-
-**A blank pane shows for a moment.** The first run after a build is slow
-while macOS checks the binary. If every run is slow, `binary` is unset.
-
-**Hint letters stayed in the pane.** With `overlay = "pane"` or window
-scope, a config reload or an app restart while the hints were up dropped
-the run without putting the pane back. The hint keys then pass through, so
-`Escape` does nothing. Press the key again, then `Escape`. The program
-restores the pane from the capture it took, as long as the pane still shows
-what it drew. `rex do rex_fingers_cancel` does the same from a shell.
-
-**Hint letters stayed in the scrollback.** The pane printed while the
-hints were up, such as a running build or Claude Code, and the painted
-rows scrolled off the screen before `Escape`. No restore can reach them;
-clearing the pane's scrollback removes them. On a pane that is printing,
-use the float key, not window scope.
-
-**Lua errors.** `rex server logs` shows errors the config check misses.
-
-## Development
-
-`go test ./...`, then `go build -o bin/rex-fingers .`. `AGENTS.md` maps the
-code and the headless test loops; `scripts/test_in_pane.sh` runs the
-in-pane lifecycle suite.
-
-## Acknowledgements
-
-[tmux-fingers](https://github.com/Morantron/tmux-fingers) by Morantron gave
-the idea, the keys, the patterns, and the alphabet. The extra patterns come
-from [tmux-thumbs](https://github.com/fcsonline/tmux-thumbs) and
-[WezTerm quick select](https://wezfurlong.org/wezterm/quickselect.html).
-[rex-opener](https://github.com/shaheislam/rex-opener) showed how a Rex
-plugin should present itself.
+- Matches come from the visible screen, not the scrollback.
+- A float hides two rows of the pane; `align` picks which.
+- No multi-select or jump mode. Rex cannot move a pane's cursor from outside.
+- On a remote Rex server, set `copy_command` to a command that reaches your
+  clipboard, such as `ssh laptop pbcopy`.
+- With `overlay = "pane"` or every-pane mode, output a program prints while
+  hints show stays on screen, and the hints stop narrowing as you type.
+  Rows that scroll into the scrollback keep their hint letters. A float
+  never writes to the pane, so it leaves nothing behind.
 
 ## License
 
-MIT
+MIT. [AGENTS.md](AGENTS.md) maps the code for contributors.
