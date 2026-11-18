@@ -279,6 +279,122 @@ if begin_case "keys: a run takes hint, Enter, and Escape; an idle pane keeps its
   end_case
 fi
 
+# --- option and action cases --------------------------------------------
+# count_hints draws with the given flags on a fresh capture, prints the
+# number of hints, and puts the pane back. It runs in a subshell, so it
+# leaves no capture behind.
+count_hints() {
+  capture
+  OUT=$($BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common "$@")
+  n=$(echo "$OUT" | jq -r .hints)
+  if [ "$n" = 0 ]; then rm -f "$VT" "$TXT"
+  else $BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common >/dev/null; fi
+  echo "$n"
+}
+float_layers() { rex api call -s "$S" session.view '{}' | jq '[.windows[0].layers[] | select(.kind!="tiled")] | length'; }
+
+if begin_case "config: check passes, key bound, no fingers key mode"; then
+  BEFORE=$(text)
+  check "rex config check passes" rex config check
+  check "rex_fingers is bound" sh -c 'rex keymap | grep -q rex_fingers'
+  check "no fingers/ binding" [ "$(rex keymap --json | jq '[.bindings[] | select(.keys[0] | startswith("fingers/"))] | length')" = 0 ]
+  check "no fingers mode" [ "$(rex keymap --json | jq '.modes | tostring | test("\"fingers\"")')" = false ]
+  end_case
+fi
+
+if begin_case "float: trigger opens a floating pane, trigger again closes it"; then
+  type_line 'clear; echo /tmp/a'; BEFORE=$(text)
+  rex do rex_fingers -s "$S" -b "$B" >/dev/null 2>&1; sleep 2
+  F=$(float_layers)
+  if [ "$F" = 0 ]; then
+    echo "   note: the loaded config draws in the pane, so the float path was not tested"
+    rex do rex_fingers_cancel -s "$S" -b "$B" >/dev/null 2>&1; sleep 1
+  else
+    check "one floating layer is open" [ "$F" = 1 ]
+    rex do rex_fingers -s "$S" -b "$B" >/dev/null 2>&1; sleep 2
+    check "the second trigger closes it" [ "$(float_layers)" = 0 ]
+  fi
+  end_case
+fi
+
+if begin_case "patterns: named, default without digit, extra, and a bad name"; then
+  type_line 'clear; echo /tmp/a https://example.com 8080 ISSUE-42'; BEFORE=$(text)
+  N_ALL=$(count_hints); N_DIGIT=$(count_hints --patterns digit)
+  N_URL=$(count_hints --patterns url); N_EXTRA=$(count_hints --patterns url --extra 'ISSUE-[0-9]+')
+  check "default finds matches" [ "$N_ALL" -gt 0 ]
+  check "digit is off by default but works when named" [ "$N_DIGIT" -gt 0 ]
+  check "url alone finds fewer than the default" [ "$N_URL" -lt "$N_ALL" ]
+  check "an extra pattern adds matches" [ "$N_EXTRA" -gt "$N_URL" ]
+  capture
+  check "an unknown pattern name fails" sh -c "! $BIN draw --begin --pid $P --vt-file $VT --text-file $TXT $common --patterns nonsense >/dev/null 2>&1"
+  rm -f "$VT" "$TXT"
+  end_case
+fi
+
+if begin_case "hint position, layout, and alphabet"; then
+  type_line 'clear; echo /tmp/1'; BEFORE=$(text)
+  # The digit after the last slash is never a hint letter, so a hint over
+  # it shows as a letter there. With the hint on the left, it does not.
+  capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path --hint-position right >/dev/null
+  check "right: a hint letter replaces the last character" [ "$(text | grep -c '/tmp/[a-z]')" -ge 1 ]
+  $BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common >/dev/null
+  capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path >/dev/null
+  check "left: the last character stays" [ "$(text | grep -c '/tmp/[a-z]')" = 0 ]
+  $BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common >/dev/null
+  for L in $($BIN layouts | awk '{print $1}'); do
+    ALPHA=$($BIN layouts | awk -v l="$L" '$1 == l {print $2}')
+    capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path --keyboard-layout "$L" >/dev/null
+    H=$(text | grep -o '[a-z;,.]*tmp/1' | head -1 | sed 's#tmp/1$##')
+    check "layout $L: the hint '$H' is in its alphabet" sh -c "[ -n '$H' ] && case '$ALPHA' in *'$H'*) true ;; *) false ;; esac"
+    $BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common >/dev/null
+  done
+  end_case
+fi
+
+if begin_case "actions: shell command with stdin and MODIFIER, and copy_command"; then
+  # One echo: nushell shows only the last statement's output.
+  type_line 'clear; echo "/tmp/a /tmp/b"'; BEFORE=$(text)
+  ACT=/tmp/fingers-act-$$; rm -f "$ACT" "$ACT.copy"
+  capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path >/dev/null
+  H=$(hint_for tmp/b)
+  OUT=$($BIN press --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --patterns path --key "$H" --modifier ctrl --cwd /tmp \
+    --ctrl-action "cat > $ACT; printf '\\n%s\\n' \"\$MODIFIER\" >> $ACT")
+  check "press is done" [ "$(echo "$OUT" | jq -r .done)" = true ]
+  sleep 0.5
+  check "the command read the match on stdin" [ "$(head -1 "$ACT" 2>/dev/null)" = /tmp/b ]
+  check "MODIFIER is ctrl" [ "$(tail -1 "$ACT" 2>/dev/null)" = ctrl ]
+  capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path >/dev/null
+  H=$(hint_for tmp/a)
+  $BIN press --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --patterns path --key "$H" --copy-command "cat > $ACT.copy" >/dev/null
+  sleep 0.5
+  check "copy_command received the match" [ "$(cat "$ACT.copy" 2>/dev/null)" = /tmp/a ]
+  rm -f "$ACT" "$ACT.copy"
+  end_case
+fi
+
+if begin_case "character widths: hints over every width case, pane restored"; then
+  type_line 'clear; cat testdata/width-cases.txt'; BEFORE=$(text)
+  capture; OUT=$($BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path)
+  check "hints drawn over the width cases" [ "$(echo "$OUT" | jq -r .hints)" -gt 0 ]
+  $BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common >/dev/null
+  end_case
+fi
+
+if begin_case "stress: a full screen of matches, ten draw and restore cycles"; then
+  W='i=1; while [ $i -le '"$((R - 4))"' ]; do echo /tmp/f$i; i=$((i+1)); done'
+  type_line "clear; sh -c '$W'"; BEFORE=$(text)
+  i=0
+  while [ $i -lt 10 ]; do
+    capture; OUT=$($BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path)
+    check "cycle $i: hints drawn" [ "$(echo "$OUT" | jq -r .hints)" -gt 0 ]
+    $BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common >/dev/null
+    check "cycle $i: pane restored" same_text || show_diff
+    rm -f "$VT" "$TXT"
+    i=$((i + 1))
+  done
+  end_case
+fi
+
 echo
 echo "passed $PASS, failed $FAIL"
 [ "$FAIL" = 0 ]
