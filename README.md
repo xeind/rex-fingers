@@ -14,9 +14,10 @@ strings on a [Rex](https://www.superlogical.com/rex) pane. Type a hint and
 the match goes to your clipboard. It ports
 [tmux-fingers](https://github.com/Morantron/tmux-fingers) to Rex.
 
-You need Go 1.24 or newer, the `rex` command, and a clipboard command
+You need Go 1.26 or newer, the `rex` command, and a clipboard command
 (`pbcopy`, `wl-copy`, `xclip`, or `xsel`). Rex is in beta; this was tested
-with Rex for Mac 0.1.0 (2027).
+with Rex for Mac 0.1.0 (2027). An older Go downloads a newer toolchain
+before it builds.
 
 ## Install
 
