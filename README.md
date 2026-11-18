@@ -16,7 +16,7 @@ the match goes to your clipboard. It ports
 
 You need Go 1.24 or newer, the `rex` command, and a clipboard command
 (`pbcopy`, `wl-copy`, `xclip`, or `xsel`). Rex is in beta; this was tested
-with Rex for Mac 0.1.0 (2018).
+with Rex for Mac 0.1.0 (2027).
 
 ## Install
 

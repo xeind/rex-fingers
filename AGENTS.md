@@ -251,6 +251,7 @@ block, and `finish` clears and restores them all.
 go test ./...                       # unit tests: screen, patterns, hints, CLI, docs
 sh scripts/smoke_test.sh            # gofmt, vet, build, -race, 10 s fuzz; no Rex needed
 sh scripts/test_in_pane.sh          # live cases; opens Rex sessions, overwrites the clipboard
+sh scripts/test_resources.sh        # leaks, memory, 2 to 12 panes; about 3 minutes; fails if hints are up in the app
 go vet ./... && gofmt -l .
 go build -o bin/rex-fingers .       # bin/ is gitignored
 rex config check && rex config reload
@@ -398,7 +399,7 @@ trigger key restores the pane.
   nothing, so every key is bound at load. Only bound keys reach Lua; the
   cost is about 2 ms on the server. A key function that errors or runs
   over 5 seconds drops the key. `rex.client.queue` is for actions only.
-- Scroll position, tested 2026-11-18 on build 2018. No block method,
+- Scroll position, tested 2026-11-18 on build 2027. No block method,
   `session.view` field, or terminal event reports it, and `rex.on` handlers
   in `init.lua` do nothing in this build. The app's copy mode reads the
   viewport: a line selection from `screen_top` to `screen_bottom`, yanked,
@@ -433,5 +434,8 @@ trigger key restores the pane.
 - Options are declared once in `defaults` in `init.lua` and documented in
   `README.md` under Configuration, with the same names and defaults.
 - Keep tmux-fingers' names and defaults where Rex allows it.
-- Tested against Rex Beta for Mac 0.1.0 (2018), CLI `0.1.0-preview.15`.
+- Tested against Rex Beta for Mac 0.1.0 (2027), CLI `0.1.0-preview.20`:
+  both test scripts ran on it 2026-11-18. The dated facts above that name
+  build 2018 were recorded as such in earlier sessions and not rechecked;
+  the app reported 2027 on that day.
   Rex is in beta; recheck the facts above when a build changes behavior.
