@@ -57,13 +57,13 @@ local defaults = {
   flash = false,
   -- Which edge of the pane to keep when the floating pane is shorter.
   align = "bottom",
-  -- Where the hints are drawn: "float", a floating pane over the pane,
-  -- two rows shorter, or "pane", the pane itself.
-  overlay = "float",
+  -- Where the hints are drawn: "pane", the pane itself, or "float", a
+  -- floating pane over the pane, two rows shorter.
+  overlay = "pane",
   -- Key that hints every pane of the window at once, or false to bind
   -- nothing. Always draws in the panes, whatever overlay says. A pick
   -- pastes into the pane the key was pressed in.
-  window_key = false,
+  window_key = "alt+shift+f",
   -- Hint the rows a pane shows when it is scrolled up, not its live
   -- screen. In-pane drawing only. Rex reports no scroll position, so each
   -- trigger has the app copy the visible rows in copy mode: copy mode

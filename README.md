@@ -34,7 +34,6 @@ with Rex for Mac 0.1.0 (2018).
    local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
    fingers.setup{
      binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
-     window_key = "alt+shift+f",
    }
    ```
 
@@ -50,7 +49,7 @@ Install rex-fingers for me in Rex.
 Read the section "Install it for a user" in
 https://raw.githubusercontent.com/xeind/rex-fingers/main/AGENTS.md
 and follow it.
-In setup, give binary as an absolute path, and set window_key to "alt+shift+f".
+In setup, give binary as an absolute path.
 Run rex config check. Then ask me before you reload my config.
 Report which keys you bound: alt+f and alt+shift+f.
 ```
@@ -87,8 +86,8 @@ Every option, with its default. An unknown name fails `rex config check`.
 fingers.setup{
   binary = "",                    -- absolute path of rex-fingers; set it, or a login shell starts first
   key = "alt+f",                  -- any Rex key or sequence; false binds nothing
-  window_key = false,             -- a key that hints every pane of the window
-  overlay = "float",              -- "float": a floating pane over yours; "pane": draw into the pane
+  window_key = "alt+shift+f",     -- a key that hints every pane of the window; false binds nothing
+  overlay = "pane",               -- "pane": draw into the pane; "float": a floating pane over yours
   patterns = {},                  -- built-in names to enable; empty is all but digit
   extra = {},                     -- more patterns, Go regexps; (?<match>...) picks the copied part
   main_action = ":copy:",         -- hint
