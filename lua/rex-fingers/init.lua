@@ -430,6 +430,8 @@ function M.setup(user)
   if opts.overlay ~= "float" and opts.overlay ~= "pane" then
     error("rex-fingers: overlay must be \"float\" or \"pane\"", 0)
   end
+  -- The in-pane keys are bound only when a run can draw in a pane.
+  local in_pane_keys = opts.overlay == "pane" or opts.window_key
 
   local function start(ctx, args, scope)
     if scope == "window" then
@@ -490,6 +492,9 @@ function M.setup(user)
       local scope = args.scope or "pane"
       if scope ~= "pane" and scope ~= "window" then
         error("Fingers: scope must be \"pane\" or \"window\"", 0)
+      end
+      if scope == "window" and not in_pane_keys then
+        error("Fingers: window scope needs overlay = \"pane\" or window_key", 0)
       end
       -- The key toggles: with hints already up in the pane, it puts the
       -- pane back.
@@ -623,6 +628,10 @@ function M.setup(user)
     if state[ctx.block_id] then return true end
     return nil
   end
+
+  -- A float with no window key reads its own keys, so nothing below is
+  -- bound and no key the user types passes through Lua.
+  if not in_pane_keys then return end
 
   -- Never bind a key that starts or ends a sequence: tmux's prefix, or the
   -- keys that open fingers.
