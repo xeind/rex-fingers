@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -52,10 +53,14 @@ func run(t *testing.T, args ...string) (string, string, int) {
 	return out.String(), errb.String(), code
 }
 
+// The version comes from the build, so the test checks its form: a tag or
+// pseudo-version in a repository, "(devel)" outside one.
+var versionLine = regexp.MustCompile(`^(v\d+\.\d+\.\d+\S*|\(devel\))\n$`)
+
 func TestCLIVersion(t *testing.T) {
 	out, _, code := run(t, "version")
-	if code != 0 || out != version+"\n" {
-		t.Errorf("version: code %d, output %q, want %q", code, out, version+"\n")
+	if code != 0 || !versionLine.MatchString(out) {
+		t.Errorf("version: code %d, output %q, want a version such as v0.3.0", code, out)
 	}
 }
 

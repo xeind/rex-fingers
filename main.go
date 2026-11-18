@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"time"
@@ -31,7 +32,16 @@ import (
 	"github.com/xeind/rex-fingers/internal/ui"
 )
 
-const version = "0.2.0"
+// version returns the version Go stamped into the binary: the git tag for
+// a build from a tagged commit or go install module@tag, a pseudo-version
+// for any other commit, and "(devel)" for a build outside a repository.
+func version() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "(devel)"
+	}
+	return info.Main.Version
+}
 
 // The special action values, as in tmux-fingers.
 const (
@@ -71,7 +81,7 @@ func main() {
 			fmt.Printf("%-20s %s\n", n, a)
 		}
 	case "version":
-		fmt.Println(version)
+		fmt.Println(version())
 	default:
 		usage()
 		os.Exit(2)
