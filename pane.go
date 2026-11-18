@@ -17,7 +17,7 @@ package main
 // pressed in: a paste goes there and a shell action runs in its --cwd.
 //
 // A run can end without restore: a config reload or an app restart drops
-// the key mode, and the hints stay painted. So draw records each pane's
+// the Lua record of the run, and the hints stay painted. So draw records each pane's
 // run in a file named after its tty, with the text it painted. The next
 // draw --begin, or restore --recover, reads it: when the pane still shows
 // that text, the saved capture is the pane as it was and replaces the new
@@ -620,7 +620,7 @@ func (r paneRun) restore(specs []paneSpec) error {
 	return reply(map[string]any{"done": true, "panes": len(specs), "changed": anyMoved(specs)})
 }
 
-// keyBytes turns a key mode binding, a letter and a modifier, into the
+// keyBytes turns a hint key, a letter and a modifier, into the
 // bytes a terminal sends for it, which is what ui.Overlay reads.
 func keyBytes(key, modifier string) ([]byte, error) {
 	if len(key) != 1 || key[0] < 'a' || key[0] > 'z' {

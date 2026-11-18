@@ -2,9 +2,9 @@
 # In-pane lifecycle test, headless. Each case opens a fresh Rex session,
 # drives rex-fingers through the CLI the way the Lua plugin does, and
 # checks that the pane is back as it was: same text, autowrap and cursor
-# modes set, no capture or run file left. A headless session has no
-# client, so the key mode itself is not entered; press and restore are
-# called as the actions would call them.
+# modes set, no capture or run file left. Most cases call press and restore
+# as the Lua keys would. The "keys" case sends real key events through
+# client.key, so the plugin must be loaded in the running config.
 #
 #   sh scripts/test_in_pane.sh            # all cases
 #   sh scripts/test_in_pane.sh output     # cases whose name contains "output"
@@ -40,7 +40,14 @@ capture() {
   rex block call -s "$S" -b "$B" format '{"format":"vt"}' | jq -j .content > "$VT"
   rex block call -s "$S" -b "$B" format '{"format":"text","unwrap":true,"trim":true}' | jq -j .content > "$TXT"
 }
-text() { rex capture -s "$S" -b "$B" --format=text --trim | sed 's/ *$//'; }
+# text prints the pane without the right prompt's clock, which nushell
+# redraws whenever it repaints the prompt.
+text() { rex capture -s "$S" -b "$B" --format=text --trim | sed -E 's/ +[0-9]{2}:[0-9]{2}:[0-9]{2}$//; s/ *$//'; }
+# send_key KEY MODS TEXT sends one key press through client.key and prints
+# whether a Lua key function took it. KEY is a W3C name in snake_case.
+send_key() {
+  rex api call -s "$S" client.key "{\"session_id\":\"$S\",\"block_id\":\"$B\",\"key\":{\"key\":\"$1\",\"mods\":\"$2\",\"consumed_mods\":\"\",\"text\":\"$3\",\"unshifted_codepoint\":0,\"composing\":false,\"action\":\"press\"}}" | jq -r .handled
+}
 # current writes the pane's VT as it is now, what the Lua side passes to
 # press and restore as --current-file, and sets CUR.
 current() {
@@ -141,8 +148,9 @@ fi
 if begin_case "trigger action with hints left recovers, cancel cleans"; then
   type_line 'clear; echo /tmp/a; echo /tmp/b'; BEFORE=$(text)
   capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common >/dev/null
-  # The app refuses the queued mode entry from the CLI, so the hints stay.
-  rex do rex_fingers -s "$S" -b "$B" >/dev/null 2>&1; sleep 1.5
+  # scope=window takes the in-pane path whatever overlay says. No run is on
+  # record for the left hints, so draw --begin recovers them first.
+  rex do rex_fingers -s "$S" -b "$B" scope=window >/dev/null 2>&1; sleep 1.5
   check "run file present after the trigger" [ -e "$RUN" ]
   rex do rex_fingers_cancel -s "$S" -b "$B" >/dev/null 2>&1; sleep 1
   end_case
@@ -251,6 +259,23 @@ if begin_case "window scope: two panes drawn, pressed, restored"; then
   check "press names pane 1" [ "$(echo "$OUT" | jq -r .pane)" = 1 ]
   sleep 0.3; check "clipboard holds /tmp/two" [ "$(pbpaste)" = /tmp/two ]
   check "second pane text unchanged" [ "$(rex capture -s "$S" -b "$B2" --format=text --trim | sed 's/ *$//')" = "$BEFORE2" ]
+  end_case
+fi
+
+if begin_case "keys: a run takes hint, Enter, and Escape; an idle pane keeps its keys"; then
+  type_line 'clear; echo /tmp/a; echo /tmp/b'; BEFORE=$(text)
+  check "idle: Escape is not taken" [ "$(send_key escape '' '')" = false ]
+  rex do rex_fingers -s "$S" -b "$B" scope=window >/dev/null 2>&1; sleep 1.5
+  H=$(hint_for tmp/b); check "a hint is drawn" [ -n "$H" ]
+  check "run: Enter is taken" [ "$(send_key enter '' '')" = true ]
+  check "run: a non-hint letter is taken" [ "$(send_key key_n '' n)" = true ]
+  pbcopy </dev/null
+  check "run: the hint is taken" [ "$(send_key "key_$H" '' "$H")" = true ]
+  sleep 0.5; check "clipboard holds /tmp/b" [ "$(pbpaste)" = /tmp/b ]
+  check "after the pick: Escape is not taken" [ "$(send_key escape '' '')" = false ]
+  rex do rex_fingers -s "$S" -b "$B" scope=window >/dev/null 2>&1; sleep 1.5
+  check "Escape is taken" [ "$(send_key escape '' '')" = true ]
+  sleep 0.5
   end_case
 fi
 

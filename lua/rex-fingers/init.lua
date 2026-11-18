@@ -7,9 +7,11 @@
 -- the captured pane with hints and closes itself once a hint is pressed.
 --
 -- With overlay = "pane", the program draws the hints into the focused
--- pane's own tty, and an exclusive key mode, "fingers", sends the hint keys
--- to actions here instead of to the program in the pane. The pane is
--- repainted from the capture when a hint is picked or the mode is left.
+-- pane's own tty. The hint letters are function key bindings, bound once
+-- when the config loads. While a run is active on the focused pane they take
+-- the key; otherwise they return nothing and the key goes on to the pane.
+-- The pane is repainted from the capture when a hint is picked or the run is
+-- cancelled. There is no key mode, so Rex for Mac shows no key list.
 local M = {}
 
 local terminal = "com.superlogical.terminal"
@@ -56,13 +58,11 @@ local defaults = {
   -- Which edge of the pane to keep when the floating pane is shorter.
   align = "bottom",
   -- Where the hints are drawn: "float", a floating pane over the pane,
-  -- two rows shorter, or "pane", the pane itself, which puts Rex in a key
-  -- mode and Rex for Mac then shows a popup listing the mode's keys.
+  -- two rows shorter, or "pane", the pane itself.
   overlay = "float",
   -- Key that hints every pane of the window at once, or false to bind
-  -- nothing. Always draws in the panes, whatever overlay says, so Rex for
-  -- Mac shows the key mode's popup. A pick pastes into the pane the key
-  -- was pressed in.
+  -- nothing. Always draws in the panes, whatever overlay says. A pick
+  -- pastes into the pane the key was pressed in.
   window_key = false,
 }
 
@@ -218,7 +218,7 @@ local function command(opts, ctx, args)
   return option_flags(argv, opts, args)
 end
 
--- The in-pane mode. state holds one run per block: the argv the program
+-- The in-pane run. state holds one run per block: the argv the program
 -- needs on every call, and the hint letters typed so far.
 local state = {}
 
@@ -235,18 +235,18 @@ local function exec(argv, ...)
   local full = {}
   for _, a in ipairs(argv) do full[#full + 1] = a end
   for _, a in ipairs({ ... }) do full[#full + 1] = a end
-  local r, err = rex.exec(full, { timeout = 10 })
+  -- A key function may run 5 seconds; after that Rex drops the key.
+  local r, err = rex.exec(full, { timeout = 4 })
   if not r then return nil, err end
   if not r.ok then return nil, "rex-fingers: " .. (r.stderr ~= "" and r.stderr or ("exit " .. tostring(r.code))) end
   return rex.json.decode(r.stdout)
 end
 
--- finish forgets the run and leaves the key mode. With restore, it also
--- repaints the pane as it was.
+-- finish forgets the run. With restore, it also repaints the pane as it
+-- was.
 local function finish(block_id, run, restore)
   state[block_id] = nil
   for _, id in ipairs((run and run.blocks) or {}) do state[id] = nil end
-  rex.client.queue("client.mode.exit")
   if run and restore then exec(run.argv("restore", currents(run))) end
 end
 
@@ -309,13 +309,6 @@ local function start_in_pane(opts, ctx, args)
   end
   local run = { argv = argv, typed = "", busy = false,
                 session_id = ctx.session_id, origin = ctx.block_id, blocks = { ctx.block_id } }
-  -- Without a client there is no key mode to read the hints with, so the
-  -- pane is put back at once.
-  local ok, qerr = pcall(rex.client.queue, "client.mode.enter", { name = "fingers" })
-  if not ok then
-    exec(argv("restore"))
-    error("Fingers: " .. tostring(qerr), 0)
-  end
   state[ctx.block_id] = run
   return { hints = r.hints }
 end
@@ -407,11 +400,6 @@ local function start_in_window(opts, ctx, args)
   end
   local run = { argv = argv, typed = "", busy = false,
                 session_id = ctx.session_id, origin = ctx.block_id, blocks = members }
-  local ok, qerr = pcall(rex.client.queue, "client.mode.enter", { name = "fingers" })
-  if not ok then
-    exec(argv("restore"))
-    error("Fingers: " .. tostring(qerr), 0)
-  end
   for _, id in ipairs(members) do state[id] = run end
   return { hints = r.hints, panes = #members }
 end
@@ -446,8 +434,15 @@ function M.setup(user)
       if scope ~= "pane" and scope ~= "window" then
         error("Fingers: scope must be \"pane\" or \"window\"", 0)
       end
-      -- The key toggles: with hints already up in a float, it sends that
-      -- float Escape, which closes it and gives the pane focus back.
+      -- The key toggles: with hints already up in the pane, it puts the
+      -- pane back.
+      local active = state[ctx.block_id]
+      if active then
+        finish(ctx.block_id, active, true)
+        return { closed = 1 }
+      end
+      -- With hints already up in a float, it sends that float Escape,
+      -- which closes it and gives the pane focus back.
       local floats = open_floats(ctx.session_id, ctx.block_id)
       if #floats > 0 then
         for _, id in ipairs(floats) do
@@ -456,13 +451,12 @@ function M.setup(user)
         return { closed = #floats }
       end
       -- Window scope always draws in the panes: a float covers one pane,
-      -- and only the key mode lets one key reach every pane.
+      -- and only the in-pane keys let one key reach every pane.
       if opts.overlay == "pane" or scope == "window" then
-        -- A run is left behind when the client goes away in the mode,
-        -- such as an app restart. Forget it here; draw --begin picks it
-        -- up from the state the program kept, if the pane still shows
-        -- its hints, and starts again from the pane as it was.
-        state[ctx.block_id] = nil
+        -- A run is left behind when the config reloads or the app
+        -- restarts. draw --begin picks it up from the state the program
+        -- kept, if the pane still shows its hints, and starts again from
+        -- the pane as it was.
         if scope == "window" then return start_in_window(opts, ctx, args) end
         return start_in_pane(opts, ctx, args)
       end
@@ -494,76 +488,108 @@ function M.setup(user)
     rex.bind(opts.window_key, "rex_fingers", { scope = "window" })
   end
 
-  -- The in-pane mode and its actions, used by overlay = "pane" and by
-  -- window scope under either overlay.
-  do
-    rex.action{
-      name = "rex_fingers_key",
-      title = "Fingers: Hint Key",
-      args = { key = "string", mod = "string" },
-      run = function(ctx, args)
-        local run = state[ctx.block_id]
-        if not run then
-          -- The mode is on but the run is gone: a config reload took it.
-          pcall(recover_pane, opts, ctx)
-          rex.client.queue("client.mode.exit")
-          return
-        end
-        -- The server takes keys while a command runs; a key that lands
-        -- during the previous one is dropped rather than raced.
-        if run.busy then return end
-        run.busy = true
-        local r, err = exec(run.argv("press", currents(run)), "--typed", run.typed, "--key", args.key, "--modifier", args.mod)
-        run.busy = false
-        if not r then
-          finish(ctx.block_id, run, true)
-          error(err, 0)
-        end
-        if not r.done then
-          run.typed = r.typed or ""
-          return
-        end
-        finish(ctx.block_id, run, false)
-        if r.paste then
-          local ok, perr = rex.block.call(terminal, "write",
-            { session_id = ctx.session_id, block_id = run.origin or ctx.block_id, data = r.paste })
-          if not ok then error(perr, 0) end
-        end
-        if r.error then error("Fingers: " .. r.error, 0) end
-      end,
-    }
+  -- The in-pane keys, used by overlay = "pane" and by window scope under
+  -- either overlay. They are function bindings with no key mode, so Rex
+  -- lists no keys. Rex cannot bind a key while a run is active, so every
+  -- key below is bound when the config loads. Each one checks for a run on
+  -- the focused pane: with none it returns nothing, and Rex hands the key
+  -- to the pane as if it were unbound.
+  rex.action{
+    name = "rex_fingers_cancel",
+    title = "Fingers: Cancel",
+    run = function(ctx)
+      local run = state[ctx.block_id]
+      if not run then pcall(recover_pane, opts, ctx) end
+      finish(ctx.block_id, run, true)
+    end,
+  }
 
-    rex.action{
-      name = "rex_fingers_cancel",
-      title = "Fingers: Cancel",
-      run = function(ctx)
-        local run = state[ctx.block_id]
-        if not run then pcall(recover_pane, opts, ctx) end
-        finish(ctx.block_id, run, true)
-      end,
-    }
-
-    rex.mode("fingers", { exclusive = true })
-    -- The app lists every binding of the mode, one row per key, so bind
-    -- only what can be pressed: the hint letters, and a modifier only when
-    -- its action is set. Every layout leaves out c, i, m, q, and n.
-    local mods = { { "", "main" } }
-    for _, m in ipairs({ { "shift+", "shift" }, { "ctrl+", "ctrl" }, { "alt+", "alt" } }) do
-      if opts[m[2] .. "_action"] ~= "" then mods[#mods + 1] = m end
+  -- handle sends one hint key to the program and acts on its answer.
+  local function handle(ctx, run, key, mod)
+    local r, err = exec(run.argv("press", currents(run)), "--typed", run.typed, "--key", key, "--modifier", mod)
+    if not r then error(err, 0) end
+    if not r.done then
+      run.typed = r.typed or ""
+      return
     end
-    local letters = opts.alphabet ~= "" and opts.alphabet or "abdefghjkloprstuvwxyz"
-    for key in letters:gmatch("%w") do
-      key = key:lower()
+    finish(ctx.block_id, run, false)
+    if r.paste then
+      local ok, perr = rex.block.call(terminal, "write",
+        { session_id = ctx.session_id, block_id = run.origin or ctx.block_id, data = r.paste })
+      if not ok then error(perr, 0) end
+    end
+    if r.error then error("Fingers: " .. r.error, 0) end
+  end
+
+  -- press runs a hint key and takes it. A key that lands while the
+  -- previous one still runs is dropped, not raced, and also taken, so the
+  -- letter does not reach the pane. A busy mark older than 5 seconds, the
+  -- longest a key function runs, is stale.
+  local function press(ctx, key, mod)
+    local run = state[ctx.block_id]
+    if not run then return nil end
+    local now = os.time()
+    if run.busy and now - run.busy < 5 then return true end
+    run.busy = now
+    local ok, err = pcall(handle, ctx, run, key, mod)
+    run.busy = nil
+    if not ok then
+      rex.log("error", "Fingers: " .. tostring(err))
+      if state[ctx.block_id] == run then pcall(finish, ctx.block_id, run, true) end
+    end
+    return true
+  end
+
+  -- cancel puts the pane back and takes the key.
+  local function cancel(ctx)
+    local run = state[ctx.block_id]
+    if not run then return nil end
+    pcall(finish, ctx.block_id, run, true)
+    return true
+  end
+
+  -- swallow takes a key during a run, so it does not type into the pane.
+  local function swallow(ctx)
+    if state[ctx.block_id] then return true end
+    return nil
+  end
+
+  -- Never bind a key that starts or ends a sequence: tmux's prefix, or the
+  -- keys that open fingers.
+  local reserved = { ["ctrl+b"] = true }
+  if opts.key then reserved[opts.key] = true end
+  if opts.window_key then reserved[opts.window_key] = true end
+  local function bind_key(key, fn)
+    if not reserved[key] then rex.bind(key, fn) end
+  end
+
+  -- A modifier gets a hint binding only when its action is set. Every
+  -- layout leaves out c, i, m, q, and n.
+  local mods = { { "", "main" } }
+  for _, m in ipairs({ { "shift+", "shift" }, { "ctrl+", "ctrl" }, { "alt+", "alt" } }) do
+    if opts[m[2] .. "_action"] ~= "" then mods[#mods + 1] = m end
+  end
+  local hinted = {}
+  for key in (opts.alphabet ~= "" and opts.alphabet or "abdefghjkloprstuvwxyz"):gmatch("%w") do
+    hinted[key:lower()] = true
+  end
+  for key in ("abcdefghijklmnopqrstuvwxyz"):gmatch(".") do
+    if hinted[key] then
+      local shifted = false
       for _, m in ipairs(mods) do
+        if m[2] == "shift" then shifted = true end
         if not (key == "q" and m[2] == "main") and not (key == "c" and m[2] == "ctrl") then
-          rex.bind("fingers/" .. m[1] .. key, "rex_fingers_key", { key = key, mod = m[2] })
+          bind_key(m[1] .. key, function(ctx) return press(ctx, key, m[2]) end)
         end
       end
-    end
-    for _, key in ipairs({ "escape", "q", "ctrl+c" }) do
-      rex.bind("fingers/" .. key, "rex_fingers_cancel")
+      if not shifted then bind_key("shift+" .. key, swallow) end
+    else
+      if key ~= "q" then bind_key(key, swallow) end
+      bind_key("shift+" .. key, swallow)
     end
   end
+  for _, key in ipairs({ "escape", "q", "ctrl+c" }) do bind_key(key, cancel) end
+  for _, key in ipairs({ "enter", "space" }) do bind_key(key, swallow) end
 end
 
 return M
