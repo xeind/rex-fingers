@@ -38,13 +38,13 @@ only the unit tests have run. There is no prebuilt download.
 1. Build the program and clone the plugin at the same tag:
 
    ```sh
-   V=v0.3.0
+   V=v0.3.1
    go install github.com/xeind/rex-fingers@$V
    git clone --branch $V --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
    "$(go env GOPATH)/bin/rex-fingers" version
    ```
 
-   Check: the last command prints `v0.3.0`. The program is at
+   Check: the last command prints `v0.3.1`. The program is at
    `$(go env GOPATH)/bin/rex-fingers`, which is `~/go/bin/rex-fingers`
    unless `GOPATH` is set.
 
