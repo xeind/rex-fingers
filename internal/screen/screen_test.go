@@ -1,6 +1,9 @@
 package screen
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseExpandsCursorForwardAndDropsStyles(t *testing.T) {
 	vt := "\x1b[0m\x1b[1m\x1b[38;5;11m~\x1b[0m/x\x1b[3Cend\x1b[0m\r\n" +
@@ -72,5 +75,29 @@ func TestCellAt(t *testing.T) {
 	start, count := l.CellAt(2, 6) // bytes of 日本
 	if start != 2 || count != 2 {
 		t.Fatalf("want 2,2 got %d,%d", start, count)
+	}
+}
+
+func TestParseAtReadsAPageAboveTheLastRows(t *testing.T) {
+	vt := "one\r\ntwo\r\nthree\r\nfour\r\nfive"
+	for _, c := range []struct {
+		rows, offset int
+		want         []string
+	}{
+		{2, 0, []string{"four", "five"}},
+		{2, 1, []string{"three", "four"}},
+		{2, 3, []string{"one", "two"}},
+		{2, 9, []string{"one", "two"}},    // past the top: the first rows
+		{2, -1, []string{"four", "five"}}, // a negative offset is the last rows
+		{9, 2, []string{"one", "two", "three", "four", "five"}},
+	} {
+		s := ParseAt(vt, c.rows, c.offset)
+		var got []string
+		for _, l := range s.Lines {
+			got = append(got, l.Text)
+		}
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("ParseAt(rows %d, offset %d) = %v, want %v", c.rows, c.offset, got, c.want)
+		}
 	}
 }

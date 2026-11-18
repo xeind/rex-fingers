@@ -115,6 +115,12 @@ also take the flags of show that pick and style the hints:
                           output during the run, so only rows that still
                           show the hints are repainted and press does not
                           repaint the frame
+  --view-file FILE        (draw) the text of the rows the pane shows; when
+                          they are a page of the scrollback, that page is
+                          hinted, on the alternate screen
+  --await-views           (draw) wait in the background for the app to copy
+                          each pane's rows to the clipboard, in the order
+                          of the panes, and use them as the view files
   --key a --modifier M    (press) the key; M is main, shift, ctrl, or alt
   --cwd DIR               (press) where an action command runs
   --cursor-visible=B --wraparound=B  the pane's modes before draw --begin
@@ -388,6 +394,51 @@ func copyCommand(command string) []string {
 		if _, err := exec.LookPath(c[0]); err == nil {
 			return c
 		}
+	}
+	return nil
+}
+
+// pasteCommand returns the command that prints the clipboard, the reverse
+// of copyCommand.
+func pasteCommand() []string {
+	candidates := [][]string{{"pbpaste"}, {"wl-paste", "--no-newline"}, {"xclip", "-selection", "clipboard", "-o"}, {"xsel", "--clipboard", "--output"}}
+	for _, c := range candidates {
+		if _, err := exec.LookPath(c[0]); err == nil {
+			return c
+		}
+	}
+	return nil
+}
+
+// readClipboard returns the text on the clipboard. The rows a scrolled
+// pane shows reach this program that way; see await.go. Only text is
+// read, so a copied image is lost when the clipboard is put back.
+func readClipboard() (string, error) {
+	argv := pasteCommand()
+	if argv == nil {
+		return "", fmt.Errorf("no command found that reads the clipboard")
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Env = commandEnv(os.Environ())
+	text, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", argv[0], err)
+	}
+	return string(text), nil
+}
+
+// writeClipboard puts text on the clipboard of this machine, whatever
+// --copy-command says: that command may send a pick somewhere else.
+func writeClipboard(text string) error {
+	argv := copyCommand("")
+	if argv == nil {
+		return fmt.Errorf("no clipboard command found")
+	}
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Stdin = strings.NewReader(text)
+	cmd.Env = commandEnv(os.Environ())
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s: %w", argv[0], err)
 	}
 	return nil
 }

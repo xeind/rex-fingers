@@ -64,6 +64,11 @@ local defaults = {
   -- nothing. Always draws in the panes, whatever overlay says. A pick
   -- pastes into the pane the key was pressed in.
   window_key = false,
+  -- Hint the rows a pane shows when it is scrolled up, not its live
+  -- screen. In-pane drawing only. Rex reports no scroll position, so each
+  -- trigger has the app copy the visible rows in copy mode: copy mode
+  -- flashes, and the clipboard is saved and put back, text only.
+  follow_scroll = false,
 }
 
 -- rect_of walks a window's layout tree to the block and returns its
@@ -351,11 +356,16 @@ local function pane_spec(session_id, block_id)
   return spec, path, text
 end
 
--- start_in_window draws hints into every terminal pane of the window at
--- once. The panes share one hint list. The pane the key was pressed in
--- comes first: a paste lands there and a command runs in its directory.
-local function start_in_window(opts, ctx, args)
-  local blocks = window_blocks(ctx.session_id, ctx.block_id)
+-- start_panes draws hints into the terminal panes in blocks at once. The
+-- panes share one hint list. The pane the key was pressed in comes first:
+-- a paste lands there and a command runs in its directory.
+--
+-- With await, a count, the program does not draw yet. It returns the ttys
+-- and waits in the background for the app to copy the rows the first
+-- await panes show, in the order of blocks, then draws the page each of
+-- them is scrolled to. The caller queues those copies. It returns the
+-- result and the blocks that take part.
+local function start_panes(opts, ctx, args, blocks, await)
   local pwd = rex.block.call(terminal, "pwd", { session_id = ctx.session_id, block_id = ctx.block_id })
   local specs, paths, members = {}, {}, {}
   for _, id in ipairs(blocks) do
@@ -372,6 +382,10 @@ local function start_in_window(opts, ctx, args)
   local tail = { "--cwd", (pwd and pwd.pwd) or "" }
   option_flags(tail, opts, args)
   local argv = { binary(opts), "draw", "--begin" }
+  if await then
+    argv[#argv + 1] = "--await-views"
+    argv[#argv + 1] = tostring(await)
+  end
   for _, s in ipairs(specs) do
     argv[#argv + 1] = "--pane"
     argv[#argv + 1] = s
@@ -381,9 +395,11 @@ local function start_in_window(opts, ctx, args)
     cleanup()
     error(err, 0)
   end
-  if r.hints == 0 then
+  -- A waiting draw has no count yet; the program deletes the captures
+  -- itself when it finds no hints.
+  if not await and r.hints == 0 then
     cleanup()
-    return { hints = 0 }
+    return { hints = 0 }, {}
   end
   -- Later calls name each pane by the tty draw found, not by pid, and
   -- carry each pane's text captured now when current is given.
@@ -401,7 +417,7 @@ local function start_in_window(opts, ctx, args)
   local run = { argv = argv, typed = "", busy = false,
                 session_id = ctx.session_id, origin = ctx.block_id, blocks = members }
   for _, id in ipairs(members) do state[id] = run end
-  return { hints = r.hints, panes = #members }
+  return { hints = r.hints, waiting = r.waiting, panes = #members }, members
 end
 
 function M.setup(user)
@@ -413,6 +429,46 @@ function M.setup(user)
   end
   if opts.overlay ~= "float" and opts.overlay ~= "pane" then
     error("rex-fingers: overlay must be \"float\" or \"pane\"", 0)
+  end
+
+  local function start(ctx, args, scope)
+    if scope == "window" then
+      return (start_panes(opts, ctx, args, window_blocks(ctx.session_id, ctx.block_id)))
+    end
+    return start_in_pane(opts, ctx, args)
+  end
+
+  -- follow_scroll hints the page each pane is scrolled to. Rex reports no scroll
+  -- position, so the app copies the rows each pane shows, in copy mode,
+  -- and the program takes them from the clipboard. The program is started
+  -- first: it saves the clipboard, returns, and waits in the background.
+  -- Then the copies are queued; the app runs them after this action
+  -- returns. Nothing calls back into Lua, because the one way the app has,
+  -- a key sent to the pane, moves a scrolled pane to its last row.
+  --
+  -- Copy mode acts on the focused pane alone, so only that pane's page is
+  -- read. In window scope the other panes are hinted on their live
+  -- screens. Reading them in turn with pane.focus_next between the copies
+  -- worked when the rex CLI ran the queue, one action per call. On a key
+  -- press the app runs the whole queue at once, and the focus has not
+  -- moved by the time the next copy runs: every copy was of the first
+  -- pane.
+  local function follow_scroll(ctx, args, scope)
+    local blocks = { ctx.block_id }
+    if scope == "window" then blocks = window_blocks(ctx.session_id, ctx.block_id) end
+    local result = start_panes(opts, ctx, args, blocks, 1)
+    rex.client.queue("pane.copy_mode.enter")
+    rex.client.queue("pane.copy_mode.move", { to = "screen_top" })
+    rex.client.queue("pane.copy_mode.select", { mode = "line" })
+    rex.client.queue("pane.copy_mode.move", { to = "screen_bottom" })
+    rex.client.queue("pane.copy_mode.yank")
+    -- The yank leaves copy mode but keeps its selection on screen, a grey
+    -- box over the whole pane. Starting a new selection in copy mode and
+    -- leaving drops it; entering and leaving alone does not.
+    rex.client.queue("pane.copy_mode.enter")
+    rex.client.queue("pane.copy_mode.select", { mode = "char" })
+    rex.client.queue("pane.copy_mode.exit")
+    return result
   end
 
   rex.action{
@@ -427,6 +483,7 @@ function M.setup(user)
       alt_action = "string?",
       copy_command = "string?",
       scope = "string?",
+      follow_scroll = "string?",
     },
     run = function(ctx, args)
       if not ctx.block_id then error("Fingers: no focused pane", 0) end
@@ -457,8 +514,21 @@ function M.setup(user)
         -- restarts. draw --begin picks it up from the state the program
         -- kept, if the pane still shows its hints, and starts again from
         -- the pane as it was.
-        if scope == "window" then return start_in_window(opts, ctx, args) end
-        return start_in_pane(opts, ctx, args)
+        -- rex do from a shell has origin "api" and no app to copy the
+        -- rows, so it hints the live screen. follow_scroll = "true" on the
+        -- call says an app is there, as with rex -C; "false" turns it
+        -- off for one binding.
+        local follow = opts.follow_scroll and ctx.origin ~= "api" and ctx.origin ~= "cli"
+        if args.follow_scroll == "true" then follow = opts.follow_scroll end
+        if args.follow_scroll == "false" then follow = false end
+        -- A machine with no command that reads the clipboard cannot
+        -- follow; the live screen is hinted then.
+        if follow then
+          local ok, result = pcall(follow_scroll, ctx, args, scope)
+          if ok then return result end
+          rex.log("warn", "Fingers: follow_scroll: " .. tostring(result))
+        end
+        return start(ctx, args, scope)
       end
       local window_id, rect = locate(ctx.session_id, ctx.block_id)
       local layer, err = rex.session.new_layer{

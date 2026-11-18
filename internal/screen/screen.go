@@ -67,9 +67,23 @@ func (s *Screen) Join(cols int, unwrapped string) {
 // every screen row, blank ones included, with CR LF between rows and none
 // after the last, so the last rows parts are exactly the screen.
 func Parse(vt string, rows int) Screen {
+	return ParseAt(vt, rows, 0)
+}
+
+// ParseAt reads the rows of a VT dump that end offset rows above its last
+// row: the page a pane shows when it is scrolled up by offset rows. An
+// offset past the top of the dump gives its first rows.
+func ParseAt(vt string, rows, offset int) Screen {
 	parts := strings.Split(vt, "\r\n")
 	if rows > 0 && len(parts) > rows {
-		parts = parts[len(parts)-rows:]
+		if offset < 0 {
+			offset = 0
+		}
+		if offset > len(parts)-rows {
+			offset = len(parts) - rows
+		}
+		end := len(parts) - offset
+		parts = parts[end-rows : end]
 	}
 	s := Screen{Lines: make([]Line, 0, len(parts))}
 	for _, p := range parts {

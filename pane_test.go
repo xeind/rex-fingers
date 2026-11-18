@@ -141,6 +141,115 @@ func TestParsePaneSpec(t *testing.T) {
 	}
 }
 
+// The rows a scrolled pane shows are found in the capture by their text.
+// No match, or more than one, means the live screen: a guessed page would
+// hint text the user is not looking at.
+func TestFindOffset(t *testing.T) {
+	lines := []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"}
+	wide := []string{"start", "0123456789", "tail   ", "", "x y", "end", "last"}
+	for _, c := range []struct {
+		name  string
+		lines []string
+		view  string
+		rows  int
+		want  int
+	}{
+		{"the live screen", lines, "a6\na7\na8", 3, 0},
+		{"one row up", lines, "a5\na6\na7", 3, 1},
+		{"the top page", lines, "a1\na2\na3", 3, 5},
+		{"a trailing newline", lines, "a2\na3\na4\n", 3, 4},
+		{"not in the capture", lines, "b1\nb2\nb3", 3, 0},
+		{"an empty view", lines, "", 3, 0},
+		{"a blank view", lines, "\n\n", 3, 0},
+		{"a capture no taller than the pane", lines[:3], "a1\na2\na3", 3, 0},
+		{"a wrapped line copied as one line", wide, "0123456789tail\n\nx y", 4, 2},
+		{"blank rows at the foot dropped by the copy", wide, "start\n0123456789\ntail", 4, 3},
+		{"spaces differ", wide, "tail\n\nxy\nend", 4, 1},
+		// screen.Parse drops zero-width characters; the app's copy keeps them.
+		{"a variation selector and a combining mark in the copy", []string{"top", "warn ⚠ cafe", "mid", "end", "last"}, "warn ⚠️ café\nmid", 2, 2},
+	} {
+		if got := findOffset(c.lines, c.view, c.rows); got != c.want {
+			t.Errorf("%s: findOffset = %d, want %d", c.name, got, c.want)
+		}
+	}
+	// The same rows in several places read the same wherever they are
+	// painted from, so the nearest page is taken. A pane that kept such a
+	// page fell back to the live screen and looked as if it had jumped to
+	// the bottom.
+	twice := []string{"same", "rows", "same", "rows", "same", "rows", "tail"}
+	if got := findOffset(twice, "same\nrows", 2); got != 1 {
+		t.Errorf("a view found in several places: findOffset = %d, want 1, the nearest", got)
+	}
+	// When the live screen is one of them, the pane is not scrolled.
+	if got := findOffset([]string{"same", "rows", "same", "rows"}, "same\nrows", 2); got != 0 {
+		t.Errorf("a view that is also the live screen: findOffset = %d, want 0", got)
+	}
+	// A blank row at the edge lets the page start a row early or late; the
+	// page whose rows line up with the copied lines is the one in view.
+	edge := []string{"top", "", "a", "b", "", "end", "last"}
+	if got := findOffset(edge, "\na\nb", 3); got != 3 {
+		t.Errorf("a blank row above the view: findOffset = %d, want 3", got)
+	}
+	if got := findOffset(edge, "a\nb\n", 3); got != 2 {
+		t.Errorf("a blank row below the view: findOffset = %d, want 2", got)
+	}
+}
+
+// A page above the live screen is hinted on the alternate screen, and the
+// run state carries the page so press and restore act on it.
+func TestLocateScrolledPage(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	vt := "old /tmp/a\r\nold /tmp/b\r\nmid\r\nnew /tmp/c\r\n$ "
+	p := paneSpec{tty: "/dev/ttys-scroll", vtFile: write("s.vt", vt), viewFile: write("s.view", "old /tmp/a\nold /tmp/b"),
+		rows: 2, cols: 20, cursor: true, wrap: true}
+	if err := p.load(); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.scr.Lines[0].Text; got != "new /tmp/c" {
+		t.Fatalf("before locate the page is the live screen, got %q", got)
+	}
+	p.locate()
+	if p.offset != 3 || !p.alt || p.scr.Lines[0].Text != "old /tmp/a" || p.scr.Lines[1].Text != "old /tmp/b" {
+		t.Fatalf("offset %d alt %v page %q, %q", p.offset, p.alt, p.scr.Lines[0].Text, p.scr.Lines[1].Text)
+	}
+	if _, err := os.Stat(p.viewFile); err == nil {
+		t.Error("locate left the view file")
+	}
+	if err := p.saveRun([]string{"old stmp/a", "old dtmp/b"}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// press and restore name the same capture and take the page from the
+	// run state.
+	later := paneSpec{tty: p.tty, vtFile: p.vtFile, rows: 2, cols: 20, cursor: true, wrap: true}
+	if err := later.load(); err != nil {
+		t.Fatal(err)
+	}
+	later.modesFromRun()
+	if later.offset != 3 || !later.alt || later.scr.Lines[0].Text != "old /tmp/a" {
+		t.Fatalf("from the run state: offset %d alt %v page %q", later.offset, later.alt, later.scr.Lines[0].Text)
+	}
+
+	// A view that is the live screen keeps the in-place path.
+	live := paneSpec{tty: "/dev/ttys-live", vtFile: write("l.vt", vt), viewFile: write("l.view", "new /tmp/c\n$"),
+		rows: 2, cols: 20, cursor: true, wrap: true}
+	if err := live.load(); err != nil {
+		t.Fatal(err)
+	}
+	live.locate()
+	if live.offset != 0 || live.alt {
+		t.Fatalf("the live screen: offset %d alt %v", live.offset, live.alt)
+	}
+}
+
 func TestKeyBytes(t *testing.T) {
 	cases := []struct {
 		key, mod string

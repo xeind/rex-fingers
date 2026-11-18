@@ -72,7 +72,7 @@ dims, and each match gets a one or two letter hint. Type the hint:
 | <kbd>Ctrl</kbd> + hint | open it with `open` or `xdg-open` |
 | <kbd>Alt</kbd> + hint | nothing until you set `alt_action` |
 | <kbd>q</kbd>, <kbd>Esc</kbd>, <kbd>Ctrl-c</kbd> | leave |
-| <kbd>Alt-f</kbd> again | leave, with `overlay = "float"` |
+| the same key again | leave |
 
 `rex-fingers patterns` lists what gets a hint. A paste from every-pane
 mode goes into the pane where you pressed the key.
@@ -104,6 +104,7 @@ fingers.setup{
   dim = true,                     -- dim everything that is not a match
   flash = false,                  -- show the pick in reverse video for 150 ms
   align = "bottom",               -- float only: the pane edge to keep, since the float is two rows shorter
+  follow_scroll = false,          -- with "pane": hint the rows the focused pane is scrolled to
 }
 ```
 
@@ -115,14 +116,27 @@ environment. Every pick is copied first.
 **Styles** are the numbers inside `ESC [ ... m`. The defaults name palette
 slots, so they follow your theme.
 
-**Overlay.** `float` opens a floating pane over yours, two rows shorter.
-`pane` draws into your pane, so every row stays visible. Every-pane mode
-always draws in the panes.
+**Overlay.** `pane` draws into your pane, so every row stays visible.
+`float` opens a floating pane over yours, two rows shorter, and never
+writes to your pane. Every-pane mode always draws in the panes.
+
+**Scrolled panes.** `follow_scroll = true` hints the rows the focused pane
+is scrolled to. It needs `overlay = "pane"` or every-pane mode. Rex reports
+no scroll position, so each trigger has the app copy the visible rows in
+copy mode. Copy mode flashes, and a helper waits about half a second for
+the rows, then puts your clipboard back as text. In every-pane mode only
+the focused pane follows its scroll; the others show their live screens.
 
 ## Limits
 
-- Matches come from the visible screen, not the scrollback.
-- A float hides two rows of the pane; `align` picks which.
+- Hints cover the live screen. A scrolled pane gets hints on the rows it
+  shows only when it has focus and `follow_scroll = true`. Without that,
+  scroll to the bottom first.
+- With `follow_scroll`, a copied image is lost from the clipboard, the Rex
+  server must run on the machine the app runs on, and a scrolled pane
+  loses what its program prints while the hints are up.
+- With `overlay = "float"`, the float hides two rows of the pane; `align`
+  picks which.
 - No multi-select or jump mode. Rex cannot move a pane's cursor from outside.
 - On a remote Rex server, set `copy_command` to a command that reaches your
   clipboard, such as `ssh laptop pbcopy`.

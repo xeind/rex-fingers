@@ -33,6 +33,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/xeind/rex-fingers/internal/inpane"
 	"github.com/xeind/rex-fingers/internal/screen"
 	"github.com/xeind/rex-fingers/internal/ui"
@@ -63,6 +64,21 @@ type paneSpec struct {
 	currentFile string
 	moved       bool
 	softRows    map[int]int
+	// viewFile is the text of the rows the pane shows, which may be a page
+	// of its scrollback. Optional; draw --begin finds the rows in the
+	// capture and deletes the file.
+	viewFile string
+	// offset is how many rows above the last row the hinted page ends; 0
+	// is the live screen. No tty write reaches the scrollback, so a page
+	// above the live screen is painted on the alternate screen: alt.
+	offset int
+	alt    bool
+	// leaveAlt is set when a recovered run was on the alternate screen,
+	// which the next draw leaves before it begins.
+	leaveAlt bool
+	// data is the capture and unwrapped the text file, as read by load.
+	data      string
+	unwrapped string
 }
 
 // runState is what draw leaves beside a pane's capture, so a later call
@@ -76,6 +92,10 @@ type runState struct {
 	Wrap    bool     `json:"wrap"`
 	Typed   string   `json:"typed"`
 	Painted []string `json:"painted"`
+	// Offset and Alt say which page the run hinted and that it is on the
+	// alternate screen, so press and restore act on the same page.
+	Offset int  `json:"offset,omitempty"`
+	Alt    bool `json:"alt,omitempty"`
 }
 
 // runFile names the state file of the run on a tty. One tty has one pane,
@@ -86,7 +106,7 @@ func runFile(tty string) string {
 
 func (p *paneSpec) saveRun(painted []string, typed string) error {
 	data, err := json.Marshal(runState{VT: p.vtFile, Text: p.textFile, Rows: p.rows, Cols: p.cols,
-		Cursor: p.cursor, Wrap: p.wrap, Typed: typed, Painted: painted})
+		Cursor: p.cursor, Wrap: p.wrap, Typed: typed, Painted: painted, Offset: p.offset, Alt: p.alt})
 	if err != nil {
 		return err
 	}
@@ -101,6 +121,10 @@ func (p *paneSpec) remove() {
 	}
 	os.Remove(runFile(p.tty))
 }
+
+// errLeftAlt reports that a leftover run was cleared off the alternate
+// screen and the capture in hand is stale.
+var errLeftAlt = fmt.Errorf("cleared a run left on the alternate screen; press the key again")
 
 // recover looks for a run left on the pane's tty. When the pane still
 // shows what that run painted, its capture is the pane as it was: it
@@ -127,6 +151,17 @@ func (p *paneSpec) recover() error {
 		if st.Text != "" {
 			os.Remove(st.Text)
 		}
+		if st.Alt {
+			// The run's frame is gone, but the pane may still be on the
+			// alternate screen with the cursor hidden. Leave it. The new
+			// capture was then taken of that screen, not of the pane, so
+			// no run can start from it.
+			if tty, err := p.open(); err == nil {
+				tty.WriteString(inpane.RestoreAlt(st.Cursor, st.Wrap))
+				tty.Close()
+			}
+			return errLeftAlt
+		}
 		return nil
 	}
 	if err := os.Rename(st.VT, p.vtFile); err != nil {
@@ -145,13 +180,14 @@ func (p *paneSpec) recover() error {
 	// read now are the run's, not the pane's.
 	p.cursor, p.wrap = st.Cursor, st.Wrap
 	p.recovered = true
+	p.alt = st.Alt
 	return p.load()
 }
 
-// modesFromRun takes the pane's cursor and autowrap modes from its run
-// state. The flags carry what the caller read when the run began, which is
-// the painted frame's modes when a recovered run began it; the state holds
-// the pane's own.
+// modesFromRun takes the pane's cursor and autowrap modes, and the page
+// the run hinted, from its run state. The flags carry what the caller read
+// when the run began, which is the painted frame's modes when a recovered
+// run began it; the state holds the pane's own.
 func (p *paneSpec) modesFromRun() {
 	data, err := os.ReadFile(runFile(p.tty))
 	if err != nil {
@@ -160,7 +196,100 @@ func (p *paneSpec) modesFromRun() {
 	var st runState
 	if json.Unmarshal(data, &st) == nil {
 		p.cursor, p.wrap = st.Cursor, st.Wrap
+		p.offset, p.alt = st.Offset, st.Alt
+		p.setPage()
 	}
+}
+
+// locate finds the rows the pane shows, given in viewFile, in the capture.
+// When they are a page above the live screen, that page is the one hinted,
+// on the alternate screen.
+func (p *paneSpec) locate() {
+	if p.viewFile == "" {
+		return
+	}
+	view, err := os.ReadFile(p.viewFile)
+	os.Remove(p.viewFile)
+	if err != nil {
+		return
+	}
+	all := screen.Parse(p.data, 0)
+	lines := make([]string, len(all.Lines))
+	for i, l := range all.Lines {
+		lines[i] = l.Text
+	}
+	p.offset = findOffset(lines, string(view), p.rows)
+	p.alt = p.offset > 0
+	p.setPage()
+}
+
+// findOffset returns how many rows above the last row of lines the page
+// of rows rows that shows view ends, or 0, the live screen, when view is
+// found nowhere. view is the page as the app copies it: a
+// wrapped line may come as one line and blank rows at the foot may be
+// missing, so the two are compared without spaces or line breaks.
+func findOffset(lines []string, view string, rows int) int {
+	if rows <= 0 || len(lines) <= rows {
+		return 0
+	}
+	// The capture's text holds no zero-width characters, such as a
+	// variation selector or a combining mark; screen.Parse drops them. The
+	// copy keeps them, so they go too.
+	squash := func(s string) string {
+		var b strings.Builder
+		for _, r := range s {
+			if r > ' ' && r != 0x7f && runewidth.RuneWidth(r) > 0 {
+				b.WriteRune(r)
+			}
+		}
+		return b.String()
+	}
+	want := squash(view)
+	if want == "" {
+		return 0
+	}
+	// Each line is squashed once, and a page is matched row by row against
+	// want, so a long scrollback costs one pass and not rows passes.
+	flat := make([]string, len(lines))
+	for i, l := range lines {
+		flat[i] = squash(l)
+	}
+	// The same rows may stand in several places, as after a command run
+	// twice, and a blank row at the edge of the view lets the page start a
+	// row early or late. Among the pages that read the same, the one whose
+	// rows line up with the lines of view wins, then the one nearest the
+	// live screen. The live screen itself, k = 0, is tried first, which
+	// keeps a pane that is not scrolled on the in-place path.
+	copied := strings.Split(view, "\n")
+	for i, l := range copied {
+		copied[i] = squash(l)
+	}
+	found, best := 0, -1
+	for k := 0; k+rows <= len(lines); k++ {
+		end := len(lines) - k
+		page := flat[end-rows : end]
+		rest := want
+		for _, row := range page {
+			if !strings.HasPrefix(rest, row) {
+				rest = "\x00"
+				break
+			}
+			rest = rest[len(row):]
+		}
+		if rest != "" {
+			continue
+		}
+		aligned := 0
+		for i := 0; i < len(page) && i < len(copied); i++ {
+			if page[i] == copied[i] {
+				aligned++
+			}
+		}
+		if aligned > best {
+			found, best = k, aligned
+		}
+	}
+	return found
 }
 
 // showsPainted reports whether the screen's text is the painted frame,
@@ -282,6 +411,8 @@ func parsePaneSpec(s string) (paneSpec, error) {
 			p.textFile = value
 		case "current":
 			p.currentFile = value
+		case "view":
+			p.viewFile = value
 		case "rows":
 			p.rows, err = strconv.Atoi(value)
 		case "cols":
@@ -302,6 +433,34 @@ func parsePaneSpec(s string) (paneSpec, error) {
 
 // load resolves the tty and parses the capture.
 func (p *paneSpec) load() error {
+	if err := p.resolve(); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(p.vtFile)
+	if err != nil {
+		return err
+	}
+	p.data, p.unwrapped = string(data), ""
+	if p.textFile != "" {
+		if text, err := os.ReadFile(p.textFile); err == nil {
+			p.unwrapped = string(text)
+		}
+	}
+	p.setPage()
+	return nil
+}
+
+// setPage parses the page of the capture that ends offset rows above its
+// last row, and marks the rows the terminal wrapped.
+func (p *paneSpec) setPage() {
+	p.scr = screen.ParseAt(p.data, p.rows, p.offset)
+	if p.unwrapped != "" {
+		p.scr.Join(p.cols, p.unwrapped)
+	}
+}
+
+// resolve checks the spec and finds the tty of a pane given by pid.
+func (p *paneSpec) resolve() error {
 	if p.vtFile == "" || p.rows <= 0 {
 		return fmt.Errorf("a pane needs vt and rows")
 	}
@@ -314,16 +473,6 @@ func (p *paneSpec) load() error {
 			return err
 		}
 		p.tty = path
-	}
-	data, err := os.ReadFile(p.vtFile)
-	if err != nil {
-		return err
-	}
-	p.scr = screen.Parse(string(data), p.rows)
-	if p.textFile != "" {
-		if text, err := os.ReadFile(p.textFile); err == nil {
-			p.scr.Join(p.cols, string(text))
-		}
 	}
 	return nil
 }
@@ -343,6 +492,7 @@ type paneRun struct {
 	cwd      *string
 	begin    *bool
 	recover  *bool
+	await    *int
 }
 
 func paneCommand(name string, args []string) error {
@@ -355,6 +505,7 @@ func paneCommand(name string, args []string) error {
 		cwd:      fs.String("cwd", "", ""),
 		begin:    fs.Bool("begin", false, ""),
 		recover:  fs.Bool("recover", false, ""),
+		await:    fs.Int("await-views", 0, ""),
 	}
 	fs.Var(&r.panes, "pane", "")
 	fs.StringVar(&r.single.tty, "tty", "", "")
@@ -362,6 +513,7 @@ func paneCommand(name string, args []string) error {
 	fs.StringVar(&r.single.vtFile, "vt-file", "", "")
 	fs.StringVar(&r.single.textFile, "text-file", "", "")
 	fs.StringVar(&r.single.currentFile, "current-file", "", "")
+	fs.StringVar(&r.single.viewFile, "view-file", "", "")
 	fs.IntVar(&r.single.rows, "rows", 0, "")
 	fs.IntVar(&r.single.cols, "cols", 0, "")
 	fs.BoolVar(&r.single.cursor, "cursor-visible", true, "")
@@ -387,6 +539,15 @@ func paneCommand(name string, args []string) error {
 		}
 		specs = append(specs, p)
 	}
+	if name == "draw" && *r.await > 0 {
+		saved := os.Getenv(awaitEnv)
+		if saved == "" {
+			return awaitStart(specs)
+		}
+		if !awaitViews(specs, *r.await, saved) {
+			return nil
+		}
+	}
 	for i := range specs {
 		if err := specs[i].load(); err != nil {
 			return err
@@ -395,12 +556,31 @@ func paneCommand(name string, args []string) error {
 		// pane before the hints are found, so they come from the clean
 		// screen.
 		if (name == "draw" && *r.begin) || (name == "restore" && *r.recover) {
-			if err := specs[i].recover(); err != nil {
+			// For a restore, a run cleared off the alternate screen is the
+			// pane put back, not a failure.
+			if err := specs[i].recover(); err != nil && !(err == errLeftAlt && name == "restore") {
 				return err
+			}
+			if name == "draw" {
+				// A recovered run starts again from the live screen; the
+				// rows the pane shows now are that run's frame, not a page
+				// of the capture.
+				if specs[i].recovered {
+					specs[i].leaveAlt, specs[i].alt = specs[i].alt, false
+					os.Remove(specs[i].viewFile)
+				} else {
+					specs[i].locate()
+				}
 			}
 		} else {
 			specs[i].modesFromRun()
-			specs[i].checkMoved()
+			if specs[i].alt {
+				// The page is on the alternate screen, which the pane's
+				// program does not scroll; there is nothing to realign.
+				specs[i].current()
+			} else {
+				specs[i].checkMoved()
+			}
 		}
 	}
 	switch name {
@@ -432,15 +612,24 @@ func (r paneRun) paint(specs []paneSpec, ovs []*ui.Overlay, typed string, begin 
 		if begin {
 			// A recovered pane has the cursor the old run saved; put it
 			// back before this run saves it again.
-			if p.recovered {
+			if p.leaveAlt {
+				b.WriteString(inpane.RestoreAlt(p.cursor, p.wrap))
+			} else if p.recovered {
 				b.WriteString("\x1b8")
 			}
-			b.WriteString(inpane.Begin)
+			if p.alt {
+				b.WriteString(inpane.BeginAlt)
+			} else {
+				b.WriteString(inpane.Begin)
+			}
 		}
 		ovs[i].Paint(&b, p.rows, p.cols, typed)
 		// Back to the cursor Begin saved, so output the pane's program
 		// writes while the hints are up lands where it would have anyway.
-		b.WriteString("\x1b8")
+		// The alternate screen keeps its own cursor.
+		if !p.alt {
+			b.WriteString("\x1b8")
+		}
 		_, err = tty.WriteString(b.String())
 		tty.Close()
 		if err != nil {
@@ -469,7 +658,9 @@ func (p *paneSpec) restore() error {
 	tty, err := p.open()
 	if err == nil {
 		seq := inpane.Restore(p.scr, p.cursor, p.wrap)
-		if p.moved {
+		if p.alt {
+			seq = inpane.RestoreAlt(p.cursor, p.wrap)
+		} else if p.moved {
 			seq = inpane.RestoreRows(p.scr, p.softRows, p.cursor, p.wrap)
 		}
 		_, err = tty.WriteString(seq)
@@ -528,19 +719,43 @@ func (r paneRun) draw(specs []paneSpec) error {
 		// put back here.
 		for i := range specs {
 			if specs[i].recovered {
+				specs[i].alt = specs[i].leaveAlt
 				if err := specs[i].restore(); err != nil {
 					return err
 				}
+			} else if *r.await > 0 {
+				// The plugin has had its reply long ago and cannot delete
+				// the captures of a run that found nothing.
+				specs[i].remove()
 			}
 		}
 	}
-	return reply(map[string]any{"tty": specs[0].tty, "panes": ttys(specs), "hints": n})
+	scrolled := 0
+	for _, p := range specs {
+		if p.alt {
+			scrolled++
+		}
+	}
+	return reply(map[string]any{"tty": specs[0].tty, "panes": ttys(specs), "hints": n, "scrolled": scrolled})
 }
 
 func (r paneRun) press(specs []paneSpec) error {
 	k, err := keyBytes(*r.key, *r.modifier)
 	if err != nil {
 		return err
+	}
+	// A run begun with --await-views has no frame until the app has copied
+	// the panes' rows. A key before that is ignored. With no frame and
+	// nothing waiting, the run found no hints or was called off: it is
+	// over, and only the captures are left to delete.
+	if _, err := os.Stat(runFile(specs[0].tty)); err != nil {
+		if _, err := os.Stat(waitFile(specs[0].tty)); err == nil {
+			return reply(map[string]any{"done": false, "typed": *r.typed})
+		}
+		for _, p := range specs {
+			p.remove()
+		}
+		return reply(map[string]any{"done": true})
 	}
 	ovs, err := r.overlays(specs)
 	if err != nil {
@@ -607,6 +822,21 @@ func (r paneRun) restore(specs []paneSpec) error {
 		kept := specs[:0]
 		for _, p := range specs {
 			if p.recovered {
+				kept = append(kept, p)
+			} else {
+				p.remove()
+			}
+		}
+		specs = kept
+	} else {
+		// A run still waiting for its rows is called off: the background
+		// copy sees its mark gone and draws nothing. A pane with no frame
+		// has nothing to put back, and repainting it from the capture
+		// would cover what it printed since.
+		kept := specs[:0]
+		for _, p := range specs {
+			os.Remove(waitFile(p.tty))
+			if _, err := os.Stat(runFile(p.tty)); err == nil {
 				kept = append(kept, p)
 			} else {
 				p.remove()

@@ -380,6 +380,96 @@ if begin_case "character widths: hints over every width case, pane restored"; th
   end_case
 fi
 
+if begin_case "a last row that fills the width keeps its last cell"; then
+  # The prompt lands on the last row, and its clock ends on the last
+  # column. The frame once erased from the cursor after that row, which
+  # took the clock's last digit; restore then saw a changed pane and left
+  # the hint on the prompt.
+  W='i=1; while [ $i -le '"$((R + 5))"' ]; do echo /tmp/f$i; i=$((i+1)); done'
+  type_line "sh -c '$W'" 1.2; BEFORE=$(text)
+  last_cell() { rex capture -s "$S" -b "$B" --format=text | tail -1 | tail -c 2; }
+  CELL=$(last_cell)
+  capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common >/dev/null
+  check "the last cell of the last row is unchanged by the hints" [ "$(last_cell)" = "$CELL" ]
+  current
+  OUT=$($BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --current-file "$CUR")
+  check "restore does not report a change" [ "$(echo "$OUT" | jq -r .changed)" = false ]
+  check "the last cell is still there" [ "$(last_cell)" = "$CELL" ]
+  end_case
+fi
+
+alt_screen() { rex block call -s "$S" -b "$B" modes | jq -r '[.modes[] | select(.number==1049) | .set][0]'; }
+
+if begin_case "scrollback page: the rows a scrolled pane shows are hinted on the alternate screen"; then
+  # No app scrolls a headless pane, so the view file is cut from the
+  # capture: the page that ends 30 rows above the last row.
+  W='i=1; while [ $i -le 80 ]; do echo /tmp/file-$i; i=$((i+1)); done'
+  type_line "sh -c '$W'" 1.2; BEFORE=$(text)
+  capture
+  ALL=/tmp/fingers-test-$$-all; VIEW=/tmp/fingers-test-$$-view
+  rex capture -s "$S" -b "$B" --format=text > "$ALL"
+  START=$(($(wc -l < "$ALL" | tr -d ' ') - R - 30 + 1))
+  sed -n "${START},$((START + R - 1))p" "$ALL" > "$VIEW"; rm -f "$ALL"
+  FIRST=$(sed -n 1p "$VIEW")
+  OUT=$($BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" --view-file "$VIEW" $common --patterns path)
+  check "draw reports one scrolled pane" [ "$(echo "$OUT" | jq -r .scrolled)" = 1 ]
+  check "the alternate screen is on" [ "$(alt_screen)" = true ]
+  H=$(text | head -1 | sed 's#tmp/.*##')
+  check "the first row shown is the page's first row, with a hint" [ -n "$H" -a "$(text | head -1)" = "$H${FIRST#/}" ]
+  pbcopy </dev/null
+  OUT=$($BIN press --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --patterns path --key "$H")
+  check "press is done" [ "$(echo "$OUT" | jq -r .done)" = true ]
+  sleep 0.3; check "clipboard holds the row from the scrollback" [ "$(pbpaste)" = "$FIRST" ]
+  check "the alternate screen is off" [ "$(alt_screen)" = false ]
+  check "no hint letters in the scrollback" [ "$(rex capture -s "$S" -b "$B" --format=text | grep -c -E '^[a-z]{1,2}tmp/file')" = 0 ]
+  end_case
+fi
+
+if begin_case "scrollback page: a view that is the live screen keeps the in-place path"; then
+  type_line 'clear; echo /tmp/a'; BEFORE=$(text)
+  capture; VIEW=/tmp/fingers-test-$$-view
+  rex capture -s "$S" -b "$B" --format=text --trim > "$VIEW"
+  OUT=$($BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" --view-file "$VIEW" $common --patterns path)
+  check "no scrolled pane" [ "$(echo "$OUT" | jq -r .scrolled)" = 0 ]
+  check "the alternate screen stays off" [ "$(alt_screen)" = false ]
+  $BIN restore --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common >/dev/null
+  end_case
+fi
+
+if begin_case "await views: the rows arrive on the clipboard, the page is drawn, the clipboard is put back"; then
+  # The app's part, copying the rows the pane shows, is played with pbcopy.
+  W='i=1; while [ $i -le 80 ]; do echo /tmp/file-$i; i=$((i+1)); done'
+  type_line "sh -c '$W'" 1.2; BEFORE=$(text)
+  capture
+  ALL=/tmp/fingers-test-$$-all; VIEW=/tmp/fingers-test-$$-view
+  rex capture -s "$S" -b "$B" --format=text > "$ALL"
+  START=$(($(wc -l < "$ALL" | tr -d ' ') - R - 30 + 1))
+  sed -n "${START},$((START + R - 1))p" "$ALL" > "$VIEW"; rm -f "$ALL"
+  SPEC="vt=$VT,text=$TXT,rows=$R,cols=$C"
+  printf 'kept' | pbcopy
+  OUT=$($BIN draw --begin --await-views 1 --pane "pid=$P,$SPEC" --patterns path)
+  check "the call returns at once, waiting" [ "$(echo "$OUT" | jq -r .waiting)" = true ]
+  OUT=$($BIN press --pane "tty=/dev/$T,$SPEC" --patterns path --key a)
+  check "a key before the frame is up is ignored" [ "$(echo "$OUT" | jq -r .done)" = false ]
+  pbcopy < "$VIEW"; rm -f "$VIEW"; sleep 1
+  check "the scrollback page is on the alternate screen" [ "$(alt_screen)" = true ]
+  check "the clipboard is put back" [ "$(pbpaste)" = kept ]
+  $BIN restore --pane "tty=/dev/$T,$SPEC" >/dev/null
+  check "the alternate screen is off" [ "$(alt_screen)" = false ]
+  end_case
+fi
+
+if begin_case "await views: a restore during the wait calls the run off"; then
+  type_line 'clear; echo /tmp/a'; BEFORE=$(text)
+  capture; SPEC="vt=$VT,text=$TXT,rows=$R,cols=$C"
+  printf 'kept' | pbcopy
+  $BIN draw --begin --await-views 1 --pane "pid=$P,$SPEC" --patterns path >/dev/null
+  $BIN restore --pane "tty=/dev/$T,$SPEC" >/dev/null; sleep 0.6
+  check "the clipboard is put back" [ "$(pbpaste)" = kept ]
+  check "no wait file is left" [ ! -e "${TMPDIR:-/tmp}/rex-fingers-$T.wait" ]
+  end_case
+fi
+
 if begin_case "stress: a full screen of matches, ten draw and restore cycles"; then
   W='i=1; while [ $i -le '"$((R - 4))"' ]; do echo /tmp/f$i; i=$((i+1)); done'
   type_line "clear; sh -c '$W'"; BEFORE=$(text)

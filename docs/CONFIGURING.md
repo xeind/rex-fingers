@@ -156,7 +156,8 @@ rex.bind("alt+o", "rex_fingers", { patterns = "file-line,path", main_action = "x
 ```
 
 The arguments are `patterns`, `main_action`, `shift_action`, `ctrl_action`,
-`alt_action`, `copy_command`, and `scope = "window"`. Window scope hints
+`alt_action`, `copy_command`, `follow_scroll = "false"` to hint the live
+screen on that key when the option is on, and `scope = "window"`. Window scope hints
 every pane of the window. It draws in the panes and reads the hint keys
 through key functions, with no Rex key mode.
 

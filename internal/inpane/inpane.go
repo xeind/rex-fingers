@@ -21,6 +21,28 @@ import (
 // autowrap so that drawing the last cell of the last row cannot scroll.
 const Begin = "\x1b7\x1b[?25l\x1b[?7l"
 
+// BeginAlt switches to the alternate screen, which saves the cursor and
+// clears that screen, then hides the cursor and turns off autowrap. A pane
+// scrolled up shows its scrollback, which no tty write reaches; the
+// alternate screen has no scrollback, so the pane shows it wherever it was
+// scrolled, and goes back to that place when RestoreAlt leaves it.
+const BeginAlt = "\x1b[?1049h\x1b[?25l\x1b[?7l"
+
+// RestoreAlt leaves the alternate screen and undoes BeginAlt. The screen
+// and scrollback under it were never written, so nothing is repainted.
+func RestoreAlt(cursorVisible, wraparound bool) string {
+	var b strings.Builder
+	b.WriteString("\x1b[0m")
+	if wraparound {
+		b.WriteString("\x1b[?7h")
+	}
+	b.WriteString("\x1b[?1049l")
+	if cursorVisible {
+		b.WriteString("\x1b[?25h")
+	}
+	return b.String()
+}
+
 // Restore returns the bytes that repaint the screen rows from the snapshot
 // and undo Begin. cursorVisible and wraparound are the pane's modes as
 // they were before Begin.
