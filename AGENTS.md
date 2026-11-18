@@ -29,8 +29,9 @@ Always:
 
 ## Install it for a user
 
-1. Build the program and clone the plugin at the same tag, so they match.
-   It needs Go 1.26 or newer and git. `V` is the newest tag,
+1. Run `go version`. If Go is missing, ask the user, then install it:
+   `brew install go` on a Mac. An older Go fetches 1.26 by itself.
+   Build the program and clone the plugin at one tag, `V`, the newest of
    `git ls-remote --tags --sort=-v:refname https://github.com/xeind/rex-fingers`:
    ```sh
    go install github.com/xeind/rex-fingers@$V
