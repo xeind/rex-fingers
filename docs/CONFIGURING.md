@@ -4,6 +4,28 @@ A walkthrough from a fresh Rex config to a tuned setup. Each step ends with
 a check, so you know it worked before moving on. The whole thing takes
 about ten minutes.
 
+## Quick reference
+
+| You want | Set in `setup` |
+| --- | --- |
+| A different key | `key = "alt+g"`. Any Rex key or sequence works, such as tmux-fingers' `"ctrl+b>shift+f"`. |
+| Another key for every pane, or none | `window_key = "alt+g"`, or `false` |
+| No key from the plugin | `key = false`, then `rex.bind("alt+f", "rex_fingers")` in your own bindings |
+| Hints in a floating pane that never writes to your pane | `overlay = "float"`. It hides two rows. |
+| Hints on the rows the focused pane is scrolled to | `follow_scroll = true`, with `overlay = "pane"`. The cost: copy mode flashes, the clipboard is saved and restored as text, and the server must run on the app's machine. |
+| Other hint letters | `keyboard_layout = "colemak-homerow"`, from `rex-fingers layouts`; or `alphabet = "asdfghjkl"`, which wins over the layout |
+| Hint on the other end of a match | `hint_position = "right"` or `"gutter"` |
+| Other colors | `hint_style` and `highlight_style`, SGR with palette slots such as `"1;38;5;0;48;5;13"`. Use slots, never hex, so the theme applies. |
+| No dimming, or a flash on a pick | `dim = false`; `flash = true` |
+| Other actions per modifier | `main_action`, `shift_action`, `ctrl_action`, `alt_action`: `:copy:`, `:paste:`, `:open:`, `""`, or a shell command that reads the match on stdin |
+| Fewer or more patterns | `patterns = { "path", "url" }`; `extra = { [[\bISSUE-\d+\b]] }`; names from `rex-fingers patterns` |
+| One key for one job | `rex.bind("alt+u", "rex_fingers", { patterns = "url,markdown-url" })`, with `key = false` for the plain one if wanted |
+| A remote Rex server | `copy_command = "ssh my-laptop pbcopy"` |
+
+Layouts leave out `c`, `i`, `m`, `q`, and `n`, as tmux-fingers does. A
+tmux-fingers user finds every option mapped in
+[TMUX-FINGERS.md](TMUX-FINGERS.md).
+
 ## 1. Build the program
 
 ```sh
