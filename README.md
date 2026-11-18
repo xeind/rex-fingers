@@ -145,6 +145,28 @@ the focused pane follows its scroll; the others show their live screens.
   Rows that scroll into the scrollback keep their hint letters. A float
   never writes to the pane, so it leaves nothing behind.
 
+## Troubleshooting
+
+**Nothing happens on the key.** Run `rex config check`, then
+`rex keymap | grep rex_fingers`. It prints one line for each bound key.
+
+**The first run is slow.** macOS checks a new binary once. If every run is
+slow, `binary` is unset.
+
+**Hint letters stayed in the pane.** A config reload or an app restart
+while the hints were up left them there. Press the key again, then
+<kbd>Esc</kbd>, or run `rex do rex_fingers_cancel`.
+
+**Hint letters stayed in the scrollback.** The pane printed while the
+hints were up, and the painted rows scrolled off the screen. No restore
+reaches them. On a pane that prints, use `overlay = "float"`.
+
+**`flag provided but not defined`.** The program is older than the Lua
+file. Install both from the same version. To see the error, run
+`rex do rex_fingers -b "$REX_BLOCK"` in the pane.
+
+**Lua errors.** `rex server logs` shows errors the config check misses.
+
 ## License
 
 MIT. [AGENTS.md](AGENTS.md) maps the code for contributors.

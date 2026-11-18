@@ -131,14 +131,52 @@ func TestAgentsHasInstallSection(t *testing.T) {
 
 var linkTarget = regexp.MustCompile(`\]\(([^)\s]+)\)|(?:src|srcset)="([^"]+)"`)
 
-func TestReadmeLocalLinksExist(t *testing.T) {
-	for _, m := range linkTarget.FindAllStringSubmatch(readFile(t, "README.md"), -1) {
-		target := m[1] + m[2]
-		if strings.Contains(target, "://") || strings.HasPrefix(target, "#") {
+var notInAnchor = regexp.MustCompile(`[^\p{L}\p{N} _-]`)
+
+// anchors returns the anchor GitHub gives each heading of a Markdown file.
+func anchors(md string) map[string]bool {
+	out := map[string]bool{}
+	fenced := false
+	for _, line := range strings.Split(md, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			fenced = !fenced
+		}
+		text := strings.TrimLeft(line, "#")
+		if fenced || text == line || !strings.HasPrefix(text, " ") {
 			continue
 		}
-		if _, err := os.Stat(filepath.FromSlash(strings.SplitN(target, "#", 2)[0])); err != nil {
-			t.Errorf("README links to %s: %v", target, err)
+		text = notInAnchor.ReplaceAllString(strings.ToLower(strings.TrimSpace(text)), "")
+		out[strings.ReplaceAll(text, " ", "-")] = true
+	}
+	return out
+}
+
+// Every local link in the README and in docs/ names a file that exists,
+// and every #anchor names a heading of that file.
+func TestLocalLinksExist(t *testing.T) {
+	files, err := filepath.Glob("docs/*.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range append([]string{"README.md"}, files...) {
+		for _, m := range linkTarget.FindAllStringSubmatch(readFile(t, file), -1) {
+			target := m[1] + m[2]
+			if strings.Contains(target, "://") {
+				continue
+			}
+			path, anchor, _ := strings.Cut(target, "#")
+			if path == "" {
+				path = file
+			} else {
+				path = filepath.Join(filepath.Dir(file), filepath.FromSlash(path))
+			}
+			if _, err := os.Stat(path); err != nil {
+				t.Errorf("%s links to %s: %v", file, target, err)
+				continue
+			}
+			if anchor != "" && !anchors(readFile(t, path))[anchor] {
+				t.Errorf("%s links to %s: %s has no such heading", file, target, path)
+			}
 		}
 	}
 }

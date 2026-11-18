@@ -37,8 +37,8 @@ rex config reload
 rex keymap | grep rex_fingers
 ```
 
-Check: the last command prints one line with `alt+f` and the file and line
-the binding came from.
+Check: the last command prints two lines: `alt+f` and `alt+shift+f`, each
+with the file and line the binding came from.
 
 ## 3. Try it
 
