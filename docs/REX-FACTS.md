@@ -9,6 +9,35 @@ nobody wrote down the build or the date.
 Rex is in beta. When a build changes behavior, recheck the entry, and
 change the date, the build, and the code it names.
 
+## Test runs
+
+2026-11-18, commit `08caedf`, CLI and server `0.1.0-preview.20`, macOS on
+arm64. The runs are headless, so no app build takes part; the app bundle
+on disk reported build 2033 that day.
+
+| Run | Result |
+| --- | --- |
+| `sh scripts/test_in_pane.sh`, nushell 0.116.1 | passed 27, failed 0 |
+| `TEST_SHELL=bash sh scripts/test_in_pane.sh`, bash 3.2.57 | passed 27, failed 0 |
+| `TEST_SHELL=zsh sh scripts/test_in_pane.sh`, zsh 5.9 | passed 23, failed 4, twice |
+| `sh scripts/test_resources.sh` | passed 17, failed 0 |
+| The float loop of [TESTING.md](TESTING.md), on a server started with `overlay = "float"` | the float opened, `a` copied `/tmp/a`, the float closed |
+| `scripts/smoke_test.sh` in CI, Ubuntu and macOS | passed |
+
+The four zsh failures are all "pane text unchanged", and their cause is
+not confirmed:
+
+- "pane output during the mode", in the cases "no scroll", "scrolls", and
+  "a background writer". In two of them a hint letter stayed on the
+  prompt row: `~/dev/rex-fingers main ❯` came back as `d/dev/rex-fingers
+  main ❯`. The prompt showed the directory, which is a match.
+- "keys". The prompt ended with `sudo` and the last command. The case
+  presses Escape twice on an idle pane, and that zsh setup acts on a
+  double Escape.
+
+The float in the app, and any run on Linux beyond the smoke test, are not
+tested.
+
 ## The float
 
 **A floating pane is two rows shorter than the pane under it.** `show`
