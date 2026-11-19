@@ -33,13 +33,13 @@ Build the program with Go 1.26 or newer and clone the plugin next to your
 config, both at the same tag so they match:
 
 ```sh
-V=v0.4.0
+V=v0.4.1
 go install github.com/xeind/rex-fingers@$V
 git clone --branch $V --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
 "$(go env GOPATH)/bin/rex-fingers" version
 ```
 
-Check: the last command prints `v0.4.0`. Note the full path it ran from;
+Check: the last command prints `v0.4.1`. Note the full path it ran from;
 the next step needs it.
 
 ## 2. Load the plugin
