@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"testing"
+
+	"github.com/xeind/rex-fingers/internal/ui"
 )
 
 // TestResolveTarget runs one row per rule of resolveTarget over a temp
@@ -59,6 +64,62 @@ func TestResolveTarget(t *testing.T) {
 			path, kind := resolveTarget(tc.text, tc.cwd)
 			if path != tc.path || kind != tc.kind {
 				t.Errorf("resolveTarget(%q, %q) = %q, %v; want %q, %v", tc.text, tc.cwd, path, kind, tc.path, tc.kind)
+			}
+		})
+	}
+}
+
+// TestOpenActions runs :open: and :reveal: through runAction with a
+// recorder as the opener, so nothing opens.
+func TestOpenActions(t *testing.T) {
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(tmp, "fixture-dir")
+	file := filepath.Join(dir, "fixture-file.txt")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var called []string
+	saved := runOpener
+	runOpener = func(args ...string) error { called = args; return nil }
+	t.Cleanup(func() { runOpener = saved })
+
+	revealFile := []string{"-R", file}
+	if runtime.GOOS != "darwin" {
+		revealFile = []string{dir}
+	}
+	tests := []struct {
+		name, action, text string
+		want               []string // nil: the opener is not called
+		fails              bool
+	}{
+		{"open a URL", actionOpen, "https://example.com", []string{"https://example.com"}, false},
+		{"reveal a URL", actionReveal, "https://example.com", []string{"https://example.com"}, false},
+		{"open a folder", actionOpen, dir, []string{dir}, false},
+		{"reveal a folder", actionReveal, dir, []string{dir}, false},
+		{"open a file", actionOpen, file, []string{file}, false},
+		{"reveal a file", actionReveal, file, revealFile, false},
+		{"open a relative file", actionOpen, "fixture-dir/fixture-file.txt:3", []string{file}, false},
+		{"open a missing path", actionOpen, "fixture-dir/gone.txt", nil, true},
+		{"reveal a missing path", actionReveal, "fixture-dir/gone.txt", []string{dir}, false},
+		{"open a sha", actionOpen, "a3f9c21", nil, true},
+		{"reveal a sha", actionReveal, "a3f9c21", nil, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			called = nil
+			sel := ui.Selection{Target: &ui.Target{Text: tc.text}}
+			err := runAction(tc.action, sel, "true", io.Discard, nil, func() string { return tmp })
+			if (err != nil) != tc.fails {
+				t.Errorf("error = %v, want failure %v", err, tc.fails)
+			}
+			if !slices.Equal(called, tc.want) {
+				t.Errorf("opener got %q, want %q", called, tc.want)
 			}
 		})
 	}

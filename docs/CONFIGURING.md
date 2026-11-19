@@ -17,7 +17,8 @@ about ten minutes.
 | Hint on the other end of a match | `hint_position = "right"` or `"gutter"` |
 | Other colors | `hint_style` and `highlight_style`, SGR with palette slots such as `"1;38;5;0;48;5;13"`. Use slots, never hex, so the theme applies. |
 | No dimming, or a flash on a pick | `dim = false`; `flash = true` |
-| Other actions per modifier | `main_action`, `shift_action`, `ctrl_action`, `alt_action`: `:copy:`, `:paste:`, `:open:`, `""`, or a shell command that reads the match on stdin |
+| Other actions per modifier | `main_action`, `shift_action`, `ctrl_action`, `alt_action`: `:copy:`, `:paste:`, `:open:`, `:reveal:`, `""`, or a shell command that reads the match on stdin |
+| A path shown in Finder, not opened | `ctrl_action = ":reveal:"` |
 | Fewer or more patterns | `patterns = { "path", "url" }`; `extra = { [[\bISSUE-\d+\b]] }`; names from `rex-fingers patterns` |
 | One key for one job | `rex.bind("alt+u", "rex_fingers", { patterns = "url,markdown-url" })`, with `key = false` for the plain one if wanted |
 | A remote Rex server | `copy_command = "ssh my-laptop pbcopy"` |
@@ -147,6 +148,24 @@ alt_action = "xargs -I{} rex run -- nvim {}",
 ```
 
 Check: Alt+hint on a path opens it in a new tab.
+
+### Show a path in Finder
+
+`:open:` opens a file with its default app. To see the file in its
+folder instead:
+
+```lua
+ctrl_action = ":reveal:",
+```
+
+A URL still goes to the browser and a folder still opens. A file is
+selected in Finder; on Linux its folder opens. A path that is gone opens
+the nearest folder that exists. Both actions take a relative path from the
+pane's directory, `~`, and a location such as `cli.go:12:3`. A pick that
+opens nothing, such as a sha, says why in `rex server logs`.
+
+Check: Ctrl+hint on a file in the pane's directory opens Finder with the
+file selected.
 
 ## 8. Limit or extend the patterns
 

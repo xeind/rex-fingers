@@ -24,7 +24,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -48,11 +47,13 @@ func version() string {
 	return info.Main.Version
 }
 
-// The special action values, as in tmux-fingers.
+// The special action values, as in tmux-fingers, and :reveal:, which is
+// not in tmux-fingers.
 const (
-	actionCopy  = ":copy:"
-	actionPaste = ":paste:"
-	actionOpen  = ":open:"
+	actionCopy   = ":copy:"
+	actionPaste  = ":paste:"
+	actionOpen   = ":open:"
+	actionReveal = ":reveal:"
 )
 
 // Main runs the subcommand named by os.Args and exits the process with 1
@@ -144,9 +145,12 @@ also take the flags of show that pick and style the hints:
   --cwd DIR               (press) where an action command runs
   --cursor-visible=B --wraparound=B  the pane's modes before draw --begin
 
-An ACTION is :copy:, :paste:, :open:, or a shell command that reads the
-match on stdin with MODIFIER and HINT in its environment. Every pick is
-copied to the clipboard first, as in tmux-fingers.`)
+An ACTION is :copy:, :paste:, :open:, :reveal:, or a shell command that
+reads the match on stdin with MODIFIER and HINT in its environment. Every
+pick is copied to the clipboard first, as in tmux-fingers. :open: opens a
+URL, a folder, or a file with its default app; :reveal: shows a file in
+its folder instead, and a missing path's nearest folder. A relative path
+is taken from --cwd.`)
 }
 
 // options are the flags that show and the in-pane subcommands share: what
@@ -324,8 +328,9 @@ func show(args []string) error {
 
 // runAction copies the match, then performs the action for the modifier:
 // nothing more for :copy:, paste for :paste:, the system opener for
-// :open:, or a shell command with the match on its standard input. The
-// OSC 52 copy goes to osc; a command runs in the directory dir returns.
+// :open: and :reveal:, or a shell command with the match on its standard
+// input. The OSC 52 copy goes to osc; a relative path and a command use
+// the directory dir returns.
 func runAction(action string, sel ui.Selection, copyCmd string, osc io.Writer, paste func(string) error, dir func() string) error {
 	text := sel.Target.Text
 	copyErr := copyText(text, copyCmd, osc)
@@ -334,8 +339,8 @@ func runAction(action string, sel ui.Selection, copyCmd string, osc io.Writer, p
 		return copyErr
 	case actionPaste:
 		return paste(text)
-	case actionOpen:
-		return openTarget(text)
+	case actionOpen, actionReveal:
+		return openTarget(text, dir(), action == actionReveal)
 	}
 	cmd := exec.Command("sh", "-c", action)
 	cmd.Stdin = strings.NewReader(text)
@@ -461,14 +466,4 @@ func writeClipboard(text string) error {
 		return fmt.Errorf("%s: %w", argv[0], err)
 	}
 	return nil
-}
-
-func openTarget(text string) error {
-	opener := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		opener = "open"
-	}
-	cmd := exec.Command(opener, text)
-	cmd.Env = commandEnv(os.Environ())
-	return cmd.Start()
 }

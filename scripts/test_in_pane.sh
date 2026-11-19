@@ -416,6 +416,22 @@ if begin_case "actions: shell command with stdin and MODIFIER, and copy_command"
   end_case
 fi
 
+if begin_case "reveal: Ctrl+hint on a folder runs the opener on it"; then
+  type_line 'clear; echo /tmp'; BEFORE=$(text)
+  # A recorder named open and xdg-open, first on PATH, so nothing opens.
+  REC=/tmp/fingers-rec-$$; mkdir -p "$REC"
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" > %s/args\n' "$REC" > "$REC/open"
+  chmod +x "$REC/open"; cp "$REC/open" "$REC/xdg-open"
+  capture; $BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path >/dev/null
+  H=$(hint_for tmp)
+  OUT=$(PATH="$REC:$PATH" $BIN press --tty /dev/"$T" --vt-file "$VT" --text-file "$TXT" $common --patterns path --key "$H" --modifier ctrl --cwd / --ctrl-action :reveal:)
+  check "press is done" [ "$(echo "$OUT" | jq -r .done)" = true ]
+  check "no error" [ "$(echo "$OUT" | jq -r '.error // ""')" = "" ]
+  check "the opener got /tmp" [ "$(cat "$REC/args" 2>/dev/null)" = /tmp ]
+  rm -rf "$REC"
+  end_case
+fi
+
 if begin_case "character widths: hints over every width case, pane restored"; then
   type_line 'clear; cat scripts/testdata/width-cases.txt'; BEFORE=$(text)
   capture; OUT=$($BIN draw --begin --pid "$P" --vt-file "$VT" --text-file "$TXT" $common --patterns path)

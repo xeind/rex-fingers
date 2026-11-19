@@ -8,7 +8,7 @@ same.
 | `@fingers-key` | `key` | A Rex key or sequence, such as `alt+f` or `ctrl+b>shift+f` |
 | `@fingers-jump-key` | none | A pane's cursor cannot be moved from outside in Rex |
 | `@fingers-pattern-N` | `extra` | A list instead of numbered options |
-| `@fingers-main-action` | `main_action` | Same values: `:copy:`, `:paste:`, `:open:`, or a command |
+| `@fingers-main-action` | `main_action` | Same values: `:copy:`, `:paste:`, `:open:`, or a command. `:open:` also takes a relative path from the pane's directory. `:reveal:` is an addition: it shows a file in Finder |
 | `@fingers-ctrl-action` | `ctrl_action` | |
 | `@fingers-shift-action` | `shift_action` | |
 | `@fingers-alt-action` | `alt_action` | |

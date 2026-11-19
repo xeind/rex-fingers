@@ -29,7 +29,7 @@ local defaults = {
   patterns = {},
   -- Extra regular expressions, Go syntax.
   extra = {},
-  -- What a hint does: ":copy:", ":paste:", ":open:", or a shell command
+  -- What a hint does: ":copy:", ":paste:", ":open:", ":reveal:", or a shell command
   -- that reads the match on stdin. Every pick is copied first.
   main_action = ":copy:",
   shift_action = ":paste:",

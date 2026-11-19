@@ -98,7 +98,7 @@ one or two letters, and the rest of the pane dims. Then:
 | --- | --- |
 | hint | copy the match |
 | <kbd>Shift</kbd> + hint | paste it into the pane |
-| <kbd>Ctrl</kbd> + hint | open it with `open` or `xdg-open` |
+| <kbd>Ctrl</kbd> + hint | open it with `open` or `xdg-open`; `ctrl_action = ":reveal:"` shows a file in Finder instead |
 | <kbd>Alt</kbd> + hint | nothing until `alt_action` is set |
 | <kbd>q</kbd>, <kbd>Esc</kbd>, <kbd>Ctrl-c</kbd>, or the trigger key again | leave |
 
@@ -133,8 +133,12 @@ fingers.setup{
 }
 ```
 
-- **Actions:** `:copy:`, `:paste:`, `:open:`, `""` for nothing, or a shell
-  command run with `sh -c`. The command reads the match on standard input
+- **Actions:** `:copy:`, `:paste:`, `:open:`, `:reveal:`, `""` for
+  nothing, or a shell command run with `sh -c`. `:open:` opens a URL, a
+  folder, or a file with its default app. `:reveal:` opens a URL or a
+  folder the same way, selects a file in Finder, and opens the nearest
+  folder of a path that is gone. Both take a relative path, `~`, and
+  `file.go:12` from the pane's directory. The command reads the match on standard input
   and runs in the pane's directory, with `MODIFIER` and `HINT` in its
   environment. Every pick is copied first.
 - **Styles:** the numbers inside `ESC [ ... m`. Use palette slots such as
