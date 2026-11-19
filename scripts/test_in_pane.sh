@@ -317,6 +317,10 @@ if begin_case "keys: a run takes hint, Enter, and Escape; an idle pane keeps its
   check "after the pick: Escape is not taken" [ "$(send_key escape '' '')" = false ]
   rex do rex_fingers -s "$S" -b "$B" scope=window >/dev/null 2>&1; sleep 1.5
   check "Escape is taken" [ "$(send_key escape '' '')" = true ]
+  # Space closes a run, as Escape does.
+  rex do rex_fingers -s "$S" -b "$B" scope=window >/dev/null 2>&1; sleep 1.5
+  check "run: Space is taken" [ "$(send_key space '' ' ')" = true ]
+  sleep 0.5; check "Space ended the run" [ -z "$(hint_for tmp/b)" ]
   # The n typed during the run is at the prompt.
   rex send-key -s "$S" -b "$B" backspace
   sleep 0.5

@@ -158,7 +158,12 @@ and by `internal/cli/await.go`.
   view where it was; `pane.send_key` with `2` and with `a` moved it to
   the bottom. A physical key press was not measured. This holds for
   every key the plugin binds: the hint letters with their modifiers,
-  Enter, Escape, `q`, and `Ctrl-c`.
+  Enter, Space, Escape, `q`, and `Ctrl-c`.
+- A key handler bound with `rex.bind(key, fn)` cannot queue an app
+  action. `rex.client.queue("pane.send_key", ...)` from one fails with
+  "a key handler cannot queue client actions: client actions are
+  returned by an invocation of an action". Tested 2026-11-19, app build
+  2044, CLI 0.1.0-preview.21.
 - A floating layer takes any bounds above zero inside the window. On
   build 2044 the app gave 1 row by 2 columns to a layer 2% wide and 3%
   high, about 145 ms after `session.new_layer`. When its program exits,

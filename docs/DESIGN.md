@@ -62,9 +62,13 @@ There is no key mode. Rex cannot bind a key while an action runs, so
 - `Escape`, `q`, and `Ctrl+C` run `finish` with restore.
 - `Enter` returns `true` and does nothing, so it does not run what is at
   the prompt.
-- Nothing else is bound. During a run, `Space`, a letter that is not a
-  hint, or a capital with no action types into the pane, and the hints
-  stay up.
+- `Space` closes the run as `Escape` does. Typed during a run, it went
+  to the program unseen under a scrolled page and left the hints up. A
+  key handler cannot queue the app's `pane.send_key`, which would type
+  it and scroll the pane back: Rex lets only an action queue app
+  actions. Bound, Space does not return a scrolled pane when idle.
+- Nothing else is bound. During a run, a letter that is not a hint or a
+  capital with no action types into the pane, and the hints stay up.
 - With no run, every one of these functions returns nothing and Rex sends
   the key to the pane.
 - `ctrl+b`, `key`, and `window_key` stay unbound, as they start

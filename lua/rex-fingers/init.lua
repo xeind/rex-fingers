@@ -661,7 +661,10 @@ function M.setup(user)
       end
     end
   end
-  for _, key in ipairs({ "escape", "q", "ctrl+c" }) do bind_key(key, cancel) end
+  -- Space closes the hints too: typed during a run, it went to the
+  -- program unseen under a scrolled page. Bound, it does not return a
+  -- scrolled pane when no run is up.
+  for _, key in ipairs({ "escape", "q", "ctrl+c", "space" }) do bind_key(key, cancel) end
   -- Enter stays taken: one that reached the pane would run the prompt.
   bind_key("enter", swallow)
 end
