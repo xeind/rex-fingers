@@ -157,8 +157,8 @@ and by `internal/cli/await.go`.
   (unbound), `key_a`, `space`, and `enter` (bound, declined) left the
   view where it was; `pane.send_key` with `2` and with `a` moved it to
   the bottom. A physical key press was not measured. This holds for
-  every key the plugin binds: the letters, Space, Enter, Escape, and the
-  Ctrl letters.
+  every key the plugin binds: the hint letters with their modifiers,
+  Enter, Escape, `q`, and `Ctrl-c`.
 - A floating layer takes any bounds above zero inside the window. On
   build 2044 the app gave 1 row by 2 columns to a layer 2% wide and 3%
   high, about 145 ms after `session.new_layer`. When its program exits,
