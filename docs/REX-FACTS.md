@@ -147,8 +147,24 @@ and by `internal/cli/await.go`.
   a config action from the queue ("does not offer"). `pane.send_key` with
   a key bound to a function is the one way back into Lua, and that
   function's `ctx.block_id` is the focused pane.
-- `pane.send_key` moves a scrolled pane to the bottom, as any key does,
-  which is why the plugin does not use it.
+- `pane.send_key` moves a scrolled pane to the bottom, which is why the
+  plugin does not use it. So does a key the app hands to the pane. A key
+  bound to a Lua function does not, though the function declines it and
+  the key is typed: the app sends it to the server with
+  `client.key.forward`, and the server writes it to the pty. Tested
+  2026-11-19 on build 2044 with a pane scrolled up two pages, the first
+  visible row read through copy mode. `client.key` with `digit_1`
+  (unbound), `key_a`, `space`, and `enter` (bound, declined) left the
+  view where it was; `pane.send_key` with `2` and with `a` moved it to
+  the bottom. A physical key press was not measured. This holds for
+  every key the plugin binds: the letters, Space, Enter, Escape, and the
+  Ctrl letters.
+- A floating layer takes any bounds above zero inside the window. On
+  build 2044 the app gave 1 row by 2 columns to a layer 2% wide and 3%
+  high, about 145 ms after `session.new_layer`. When its program exits,
+  focus returns to the pane that had it. A pane with focus reporting on
+  (mode 1004) hears the float take focus and give it back. Nothing uses
+  this; `docs/HISTORY.md` says why.
 - Entering and leaving the alternate screen alone keeps the scroll
   position: a pane scrolled to a row was at that row after a draw and a
   restore with no key sent.

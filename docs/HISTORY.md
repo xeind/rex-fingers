@@ -67,6 +67,18 @@ built on the user's machine is never quarantined. The cost is that the
 user needs Go 1.26 and git. `scripts/build_release.sh` built the
 tarballs; `git show 2a27f56:scripts/build_release.sh` prints it.
 
+## The floating pane that read the keys
+
+On 2026-11-19 a branch added `key_input = "focus"`: a one-row floating
+pane took focus during a run, and a `keys` subcommand read the hint keys
+from its tty. Only the two triggers stayed bound, so typing in a
+scrolled pane returned it to its last row. The costs: a float on screen
+for each run, the pane out of focus meanwhile, about 0.1 s before the
+first key was read, and no `follow_scroll`, since the app copies from
+the pane that has focus. The owner tried it and turned it down the same
+day, and it was never committed. The plugin binds fewer keys instead.
+[REX-FACTS.md](REX-FACTS.md) keeps the floating-layer facts it relied on.
+
 ## The align option
 
 `align` chose which two rows a float hides, top or bottom. It was cut on

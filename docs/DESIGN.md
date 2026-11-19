@@ -70,6 +70,11 @@ There is no key mode. Rex cannot bind a key while an action runs, so
 The action `rex_fingers_cancel` restores the pane from the palette or the
 CLI. The trigger key restores a run that is up.
 
+A key bound this way has a cost outside a run. The app sends it to the
+server and never hands it to the pane itself, so a declined key is typed
+but does not return a scrolled pane to its last row. REX-FACTS.md has the
+measurement.
+
 ### A run left without restore
 
 A config reload or an app restart drops the Lua record of the run. The
