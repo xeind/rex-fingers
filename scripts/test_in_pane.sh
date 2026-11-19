@@ -305,16 +305,20 @@ fi
 if begin_case "keys: a run takes hint, Enter, and Escape; an idle pane keeps its keys"; then
   type_line 'clear; echo /tmp/a; echo /tmp/b'; BEFORE=$(text)
   check "idle: Escape is not taken" [ "$(send_key escape '' '')" = false ]
+  check "idle: Space is not taken" [ "$(send_key space '' ' ')" = false ]
+  rex send-key -s "$S" -b "$B" backspace; sleep 0.3
   rex do rex_fingers -s "$S" -b "$B" scope=window >/dev/null 2>&1; sleep 1.5
   H=$(hint_for tmp/b); check "a hint is drawn" [ -n "$H" ]
   check "run: Enter is taken" [ "$(send_key enter '' '')" = true ]
-  check "run: a non-hint letter is taken" [ "$(send_key key_n '' n)" = true ]
+  check "run: a non-hint letter is not taken" [ "$(send_key key_n '' n)" = false ]
   pbcopy </dev/null
   check "run: the hint is taken" [ "$(send_key "key_$H" '' "$H")" = true ]
   sleep 0.5; check "clipboard holds /tmp/b" [ "$(pbpaste)" = /tmp/b ]
   check "after the pick: Escape is not taken" [ "$(send_key escape '' '')" = false ]
   rex do rex_fingers -s "$S" -b "$B" scope=window >/dev/null 2>&1; sleep 1.5
   check "Escape is taken" [ "$(send_key escape '' '')" = true ]
+  # The n typed during the run is at the prompt.
+  rex send-key -s "$S" -b "$B" backspace
   sleep 0.5
   end_case
 fi

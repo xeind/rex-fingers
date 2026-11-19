@@ -60,8 +60,11 @@ There is no key mode. Rex cannot bind a key while an action runs, so
   --tty T --typed ... --key K` and returns `true`; the program repaints,
   or on a full hint restores the pane and runs the action.
 - `Escape`, `q`, and `Ctrl+C` run `finish` with restore.
-- `Enter`, `Space`, and the letters that are not hints return `true` and
-  do nothing, so they do not type into the pane.
+- `Enter` returns `true` and does nothing, so it does not run what is at
+  the prompt.
+- Nothing else is bound. During a run, `Space`, a letter that is not a
+  hint, or a capital with no action types into the pane, and the hints
+  stay up.
 - With no run, every one of these functions returns nothing and Rex sends
   the key to the pane.
 - `ctrl+b`, `key`, and `window_key` stay unbound, as they start
@@ -73,7 +76,7 @@ CLI. The trigger key restores a run that is up.
 A key bound this way has a cost outside a run. The app sends it to the
 server and never hands it to the pane itself, so a declined key is typed
 but does not return a scrolled pane to its last row. REX-FACTS.md has the
-measurement.
+measurement. That is why only the keys a run needs are bound.
 
 ### A run left without restore
 

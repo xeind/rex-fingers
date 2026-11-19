@@ -641,7 +641,9 @@ function M.setup(user)
   end
 
   -- A modifier gets a hint binding only when its action is set. Every
-  -- layout leaves out c, i, m, q, and n.
+  -- layout leaves out c, i, m, q, and n. A key that is no hint is not
+  -- bound: a bound key does not return a scrolled pane to its last row
+  -- (REX-FACTS.md), so during a run it types into the pane instead.
   local mods = { { "", "main" } }
   for _, m in ipairs({ { "shift+", "shift" }, { "ctrl+", "ctrl" }, { "alt+", "alt" } }) do
     if opts[m[2] .. "_action"] ~= "" then mods[#mods + 1] = m end
@@ -652,21 +654,16 @@ function M.setup(user)
   end
   for key in ("abcdefghijklmnopqrstuvwxyz"):gmatch(".") do
     if hinted[key] then
-      local shifted = false
       for _, m in ipairs(mods) do
-        if m[2] == "shift" then shifted = true end
         if not (key == "q" and m[2] == "main") and not (key == "c" and m[2] == "ctrl") then
           bind_key(m[1] .. key, function(ctx) return press(ctx, key, m[2]) end)
         end
       end
-      if not shifted then bind_key("shift+" .. key, swallow) end
-    else
-      if key ~= "q" then bind_key(key, swallow) end
-      bind_key("shift+" .. key, swallow)
     end
   end
   for _, key in ipairs({ "escape", "q", "ctrl+c" }) do bind_key(key, cancel) end
-  for _, key in ipairs({ "enter", "space" }) do bind_key(key, swallow) end
+  -- Enter stays taken: one that reached the pane would run the prompt.
+  bind_key("enter", swallow)
 end
 
 return M
