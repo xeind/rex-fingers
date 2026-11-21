@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; width: 1280px; height: 640px; overflow: hidden; }
+  body {
+    display: flex;
+    font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif;
+  }
+  .text {
+    width: 768px;
+    background: #f3f3f1;
+    padding: 72px 72px 64px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .name {
+    font-size: 40px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: #1c1c1e;
+  }
+  .headline {
+    font-size: 76px;
+    font-weight: 500;
+    line-height: 1.08;
+    letter-spacing: -0.025em;
+    color: #1c1c1e;
+  }
+  .tagline {
+    font-size: 48px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: #e2803f;
+  }
+  .art {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(circle at 85% 15%, #f7c948 0%, transparent 55%),
+      radial-gradient(circle at 15% 90%, #b45ee8 0%, transparent 60%),
+      linear-gradient(160deg, #ef6a8a 0%, #f08a4b 100%);
+  }
+  .art img {
+    width: 420px;
+    height: 420px;
+    filter: drop-shadow(0 24px 40px rgba(60, 20, 40, 0.35));
+  }
+</style>
+</head>
+<body>
+  <div class="text">
+    <div class="name">rex-fingers</div>
+    <div class="headline">Letter hints for<br>every pane in Rex</div>
+    <div class="tagline">Short arms, long reach.</div>
+  </div>
+  <div class="art">
+    <img src="logo-claw-glass-rex-dark.png" alt="">
+  </div>
+</body>
+</html>
