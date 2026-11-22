@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"flag"
+	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"github.com/xeind/rex-fingers/internal/hints"
 	"github.com/xeind/rex-fingers/internal/patterns"
 	"github.com/xeind/rex-fingers/internal/screen"
+	"github.com/xeind/rex-fingers/internal/ui"
 )
 
 var binary string
@@ -197,5 +200,52 @@ func TestOptionsDefaultActions(t *testing.T) {
 		if c.got != c.want {
 			t.Errorf("%s action default %q, want %q", c.name, c.got, c.want)
 		}
+	}
+}
+
+// Rex reports a pane's directory as a file:// URL when the shell sends
+// OSC 7, and as a plain path otherwise. An action takes either.
+func TestActionFolderFromPwd(t *testing.T) {
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(tmp, "a folder")
+	file := filepath.Join(dir, "fixture.txt")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var opened []string
+	saved := runOpener
+	runOpener = func(args ...string) error { opened = args; return nil }
+	t.Cleanup(func() { runOpener = saved })
+	out := filepath.Join(tmp, "pwd.out")
+	t.Setenv("RF_TEST_OUT", out)
+
+	for _, pwd := range []string{
+		dir,
+		(&url.URL{Scheme: "file", Host: "colter.local", Path: dir}).String(),
+		(&url.URL{Scheme: "file", Path: dir}).String(),
+	} {
+		t.Run(pwd, func(t *testing.T) {
+			sel := ui.Selection{Target: &ui.Target{Text: "fixture.txt"}}
+			opened = nil
+			if err := runAction(actionOpen, sel, "true", io.Discard, nil, func() string { return pwd }); err != nil {
+				t.Fatalf(":open: %v", err)
+			}
+			if len(opened) != 1 || opened[0] != file {
+				t.Errorf(":open: opener got %q, want %q", opened, file)
+			}
+			if err := runAction(`pwd -P > "$RF_TEST_OUT"`, sel, "true", io.Discard, nil, func() string { return pwd }); err != nil {
+				t.Fatalf("shell action: %v", err)
+			}
+			got, _ := os.ReadFile(out)
+			if strings.TrimSpace(string(got)) != dir {
+				t.Errorf("shell action ran in %q, want %q", strings.TrimSpace(string(got)), dir)
+			}
+		})
 	}
 }

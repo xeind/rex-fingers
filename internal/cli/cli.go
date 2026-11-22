@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime/debug"
@@ -340,15 +341,29 @@ func runAction(action string, sel ui.Selection, copyCmd string, osc io.Writer, p
 	case actionPaste:
 		return paste(text)
 	case actionOpen, actionReveal:
-		return openTarget(text, dir(), action == actionReveal)
+		return openTarget(text, localPath(dir()), action == actionReveal)
 	}
 	cmd := exec.Command("sh", "-c", action)
 	cmd.Stdin = strings.NewReader(text)
-	cmd.Dir = dir()
+	cmd.Dir = localPath(dir())
 	cmd.Env = append(commandEnv(os.Environ()), "MODIFIER="+sel.Modifier.String(), "HINT="+sel.Target.Hint)
 	cmd.Stdout = nil
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// localPath turns the directory Rex reports for a pane into a path. Rex
+// gives a file:// URL, with a host and percent escapes, when the shell
+// sends OSC 7, and a plain path otherwise.
+func localPath(pwd string) string {
+	if !strings.HasPrefix(pwd, "file://") {
+		return pwd
+	}
+	u, err := url.Parse(pwd)
+	if err != nil {
+		return ""
+	}
+	return u.Path
 }
 
 // commandEnv returns env with a UTF-8 locale added when none is set. The
