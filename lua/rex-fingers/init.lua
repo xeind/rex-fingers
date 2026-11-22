@@ -581,7 +581,8 @@ function M.setup(user)
 
   -- handle sends one hint key to the program and acts on its answer.
   local function handle(ctx, run, key, mod)
-    local r, err = exec(run.argv("press", currents(run)), "--typed", run.typed, "--key", key, "--modifier", mod)
+    local r, err = exec(run.argv("press", currents(run)), "--typed", run.typed, "--key", key, "--modifier", mod,
+                        "--session", run.session_id, "--block", run.origin)
     if not r then error(err, 0) end
     if not r.done then
       run.typed = r.typed or ""

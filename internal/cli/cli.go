@@ -144,10 +144,13 @@ also take the flags of show that pick and style the hints:
                           of the panes, and use them as the view files
   --key a --modifier M    (press) the key; M is main, shift, ctrl, or alt
   --cwd DIR               (press) where an action command runs
+  --session ID --block ID (press) the run's session and pane, given to an
+                          action command as REX_SESSION and REX_BLOCK
   --cursor-visible=B --wraparound=B  the pane's modes before draw --begin
 
 An ACTION is :copy:, :paste:, :open:, :reveal:, or a shell command that
-reads the match on stdin with MODIFIER and HINT in its environment. Every
+reads the match on stdin with MODIFIER, HINT, REX_SESSION, and REX_BLOCK
+in its environment. Every
 pick is copied to the clipboard first, as in tmux-fingers. :open: opens a
 URL, a folder, or a file with its default app; :reveal: shows a file in
 its folder instead, and a missing path's nearest folder. A relative path
@@ -324,7 +327,22 @@ func show(args []string) error {
 		return nil
 	}
 
+	// The float is a pane of its own, and Rex set its REX_BLOCK to the
+	// float; the action gets the pane under it.
+	setRexTarget(*session, *block)
 	return runAction(opts.action(sel.Modifier), sel, *opts.copyCmd, os.Stdout, pane.Write, pane.Pwd)
+}
+
+// setRexTarget names the session and pane of the run in REX_SESSION and
+// REX_BLOCK for the action, as a terminal in Rex has them, so `rex run`
+// in an action opens beside that pane. The Rex server that runs the
+// program sets neither. An empty session leaves both as they are.
+func setRexTarget(session, block string) {
+	if session == "" {
+		return
+	}
+	os.Setenv("REX_SESSION", session)
+	os.Setenv("REX_BLOCK", block)
 }
 
 // runAction copies the match, then performs the action for the modifier:

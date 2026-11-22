@@ -203,6 +203,41 @@ func TestOptionsDefaultActions(t *testing.T) {
 	}
 }
 
+// An action gets the session and the pane of the run as REX_SESSION and
+// REX_BLOCK, so `rex run` in it opens beside the pane. The server that
+// runs the program sets neither.
+func TestPressActionGetsRexTarget(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	t.Setenv("REX_SESSION", "session:inherited")
+	t.Setenv("REX_BLOCK", "block:inherited")
+	dir := t.TempDir()
+	tty := filepath.Join(dir, "tty")
+	vt := filepath.Join(dir, "screen.vt")
+	out := filepath.Join(dir, "env.out")
+	for _, f := range []struct{ path, content string }{{tty, ""}, {vt, "see /tmp/a"}} {
+		if err := os.WriteFile(f.path, []byte(f.content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	common := []string{"--tty", tty, "--vt-file", vt, "--rows", "1", "--cols", "20",
+		"--patterns", "path", "--alphabet", "asdf", "--copy-command", "true",
+		"--main-action", `printf '%s %s' "$REX_SESSION" "$REX_BLOCK" > "` + out + `"`}
+	run := func(args ...string) {
+		if b, err := exec.Command(binary, args...).CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v: %s", args[0], err, b)
+		}
+	}
+	run(append([]string{"draw", "--begin"}, common...)...)
+	run(append([]string{"press", "--key", "a", "--session", "session:s1", "--block", "block:b1"}, common...)...)
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("the action did not run: %v", err)
+	}
+	if string(got) != "session:s1 block:b1" {
+		t.Errorf("action saw %q, want %q", got, "session:s1 block:b1")
+	}
+}
+
 // Rex reports a pane's directory as a file:// URL when the shell sends
 // OSC 7, and as a plain path otherwise. An action takes either.
 func TestActionFolderFromPwd(t *testing.T) {

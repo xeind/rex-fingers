@@ -131,7 +131,7 @@ fingers.setup{
 
 - **Actions:** `:copy:`, `:paste:`, `:open:`, `:reveal:`, `""` for
   nothing, or a shell command that reads the match on standard input,
-  with `MODIFIER` and `HINT` set. Every pick is copied first. `:open:`
+  with `MODIFIER`, `HINT`, `REX_SESSION`, and `REX_BLOCK` set. Every pick is copied first. `:open:`
   and `:reveal:` take a relative path, `~`, and `file.go:12`, from the
   pane's directory.
 - **Styles:** SGR numbers. Use palette slots such as `38;5;12`, not hex,

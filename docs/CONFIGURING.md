@@ -142,15 +142,19 @@ alt_action = "",           -- Alt+hint
 ```
 
 Any of them can be a shell command instead. It gets the match on standard
-input, `MODIFIER` and `HINT` in the environment, and runs in the pane's
-directory. Every pick is copied to the clipboard before the action runs.
+input and runs in the pane's directory. `MODIFIER`, `HINT`, `REX_SESSION`,
+and `REX_BLOCK` are in its environment, so `rex` in it acts on the pane's
+session. Every pick is copied to the clipboard before the action runs.
 The command gets the Rex server's `PATH`, which is
 `/usr/bin:/bin:/usr/sbin:/sbin` on a Mac, not your shell's. Name any other
-program, `copy_command` included, by its absolute path.
+program, `copy_command` included, by its absolute path. `rex run` starts
+its command with your login shell's `PATH`, so `nvim` needs no path there.
 
 ```lua
-alt_action = "xargs -I{} rex run -- nvim {}",
+alt_action = "xargs -I{} '/path/to/rex' run -- nvim {}",
 ```
+
+Put the path that `command -v rex` prints in place of `/path/to/rex`.
 
 Check: Alt+hint on a path opens it in a new tab.
 
@@ -197,7 +201,7 @@ Bindings can pass arguments that override the setup for one run:
 ```lua
 rex.bind("alt+u", "rex_fingers", { patterns = "url,markdown-url" })
 rex.bind("alt+g", "rex_fingers", { patterns = "git-status,diff,sha" })
-rex.bind("alt+o", "rex_fingers", { patterns = "file-line,path", main_action = "xargs -I{} rex run -- nvim {}" })
+rex.bind("alt+o", "rex_fingers", { patterns = "file-line,path", main_action = "xargs -I{} '/path/to/rex' run -- nvim {}" })
 ```
 
 The arguments are `patterns`, `main_action`, `shift_action`, `ctrl_action`,
@@ -231,7 +235,7 @@ fingers.setup{
   keyboard_layout = "qwerty-homerow",
   hint_style = "1;38;5;0;48;5;13",
   highlight_style = "1;38;5;13",
-  alt_action = "xargs -I{} rex run -- nvim {}",
+  alt_action = "xargs -I{} '/path/to/rex' run -- nvim {}",
   extra = { [[\bISSUE-\d+\b]] },
 }
 rex.bind("alt+f", "rex_fingers")

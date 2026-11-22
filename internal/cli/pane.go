@@ -552,6 +552,8 @@ type paneRun struct {
 	key      *string
 	modifier *string
 	cwd      *string
+	session  *string
+	block    *string
 	begin    *bool
 	recover  *bool
 	await    *int
@@ -565,6 +567,8 @@ func paneCommand(name string, args []string) error {
 		key:      fs.String("key", "", ""),
 		modifier: fs.String("modifier", "main", ""),
 		cwd:      fs.String("cwd", "", ""),
+		session:  fs.String("session", "", ""),
+		block:    fs.String("block", "", ""),
 		begin:    fs.Bool("begin", false, ""),
 		recover:  fs.Bool("recover", false, ""),
 		await:    fs.Int("await-views", 0, ""),
@@ -871,6 +875,7 @@ func (r paneRun) press(specs []paneSpec) error {
 		return err
 	}
 	defer osc.Close()
+	setRexTarget(*r.session, *r.block)
 	if err := runAction(r.opts.action(sel.Modifier), sel, *r.opts.copyCmd, osc, paste, dir); err != nil {
 		result["error"] = err.Error()
 	}
