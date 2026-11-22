@@ -31,24 +31,31 @@ Always:
 
 1. Run `go version`. If Go is missing, ask the user, then install it:
    `brew install go` on a Mac. An older Go fetches 1.26 by itself.
-   Build the program and clone the plugin at one tag, `V`, the newest of
-   `git ls-remote --tags --sort=-v:refname https://github.com/xeind/rex-fingers`:
+   Clone the plugin at one tag, `V`, the newest of
+   `git ls-remote --tags --sort=-v:refname https://github.com/xeind/rex-fingers`,
+   and build the program into its `bin/`:
    ```sh
-   go install github.com/xeind/rex-fingers@$V
    git clone --branch $V --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
-   "$(go env GOPATH)/bin/rex-fingers" version   # prints $V
+   go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
+   ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version   # prints $V
    ```
+   `go build -o` ignores `GOBIN` and `GOPATH`, so a mise or custom Go
+   setup lands the program in the same place. Git ignores `bin/`.
    There is no prebuilt download; `docs/HISTORY.md` says why.
+   When `~/.config/rex/plugins/rex-fingers` already exists, update it
+   instead with the steps in `README.md` under Update. In step 2, edit
+   the user's existing `fingers.setup` call; leave one call only.
 2. In the user's Rex config, `~/.config/rex/init.lua` or a file it
    requires, add:
    ```lua
-   local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
+   local fingers_dir = os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers"
+   local fingers = dofile(fingers_dir .. "/lua/rex-fingers/init.lua")
    fingers.setup{
-     binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
+     binary = fingers_dir .. "/bin/rex-fingers",
    }
    ```
-   `binary` must be an absolute path: the one step 1 printed the version
-   from. Set `window_key = false` if the user wants one key only.
+   `binary` must be an absolute path. Set `window_key = false` if the
+   user wants one key only.
 3. `rex config check`, then `rex config reload`.
 4. Confirm with `rex keymap | grep rex_fingers`: `alt+f` for the focused
    pane and `alt+shift+f` for every pane of the window.

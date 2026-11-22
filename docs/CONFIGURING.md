@@ -29,27 +29,29 @@ tmux-fingers user finds every option mapped in
 
 ## 1. Get the program and the plugin
 
-Build the program with Go 1.26 or newer and clone the plugin next to your
-config, both at the same tag so they match:
+Clone the plugin next to your config, then build the program with Go
+1.26 or newer into the clone's `bin/` folder. One checkout gives both, so
+they always match:
 
 ```sh
-V=v0.4.1
-go install github.com/xeind/rex-fingers@$V
-git clone --branch $V --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
-"$(go env GOPATH)/bin/rex-fingers" version
+git clone --branch v0.4.1 --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
+go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
+~/.config/rex/plugins/rex-fingers/bin/rex-fingers version
 ```
 
-Check: the last command prints `v0.4.1`. Note the full path it ran from;
-the next step needs it.
+Check: the last command prints `v0.4.1`. `GOBIN` and `GOPATH` do not
+change where the program lands, and git ignores `bin/`. To move an
+existing install to a new tag, see [Update](../README.md#update).
 
 ## 2. Load the plugin
 
-Add to `~/.config/rex/init.lua`, with the path from step 1 as `binary`:
+Add to `~/.config/rex/init.lua`:
 
 ```lua
-local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
+local fingers_dir = os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers"
+local fingers = dofile(fingers_dir .. "/lua/rex-fingers/init.lua")
 fingers.setup{
-  binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
+  binary = fingers_dir .. "/bin/rex-fingers",
 }
 ```
 
@@ -142,6 +144,9 @@ alt_action = "",           -- Alt+hint
 Any of them can be a shell command instead. It gets the match on standard
 input, `MODIFIER` and `HINT` in the environment, and runs in the pane's
 directory. Every pick is copied to the clipboard before the action runs.
+The command gets the Rex server's `PATH`, which is
+`/usr/bin:/bin:/usr/sbin:/sbin` on a Mac, not your shell's. Name any other
+program, `copy_command` included, by its absolute path.
 
 ```lua
 alt_action = "xargs -I{} rex run -- nvim {}",
@@ -218,9 +223,10 @@ Check: a pick lands on your local clipboard.
 ## A complete example
 
 ```lua
-local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
+local fingers_dir = os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers"
+local fingers = dofile(fingers_dir .. "/lua/rex-fingers/init.lua")
 fingers.setup{
-  binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
+  binary = fingers_dir .. "/bin/rex-fingers",
   key = false,
   keyboard_layout = "qwerty-homerow",
   hint_style = "1;38;5;0;48;5;13",

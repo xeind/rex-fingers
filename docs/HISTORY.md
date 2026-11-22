@@ -62,10 +62,16 @@ The program was signed ad hoc and not notarized. A copy fetched with
 dialog "rex-fingers Not Opened". Only `xattr -dr com.apple.quarantine` on
 the folder got past it. Notarizing needs a paid Apple Developer account.
 
-The install is `go install` and `git clone` at one tag again. A program
-built on the user's machine is never quarantined. The cost is that the
-user needs Go 1.26 and git. `scripts/build_release.sh` built the
+The install went back to `go install` and `git clone` at one tag. A
+program built on the user's machine is never quarantined. The cost is
+that the user needs Go 1.26 and git. `scripts/build_release.sh` built the
 tarballs; `git show 2a27f56:scripts/build_release.sh` prints it.
+
+On 2026-11-22, `go install` gave way to `go build -o bin/rex-fingers`
+inside the clone. `go install` writes to `GOBIN`, which mise points at
+its own folder, so the documented `~/go/bin/rex-fingers` did not exist
+there. The build into the clone ignores `GOBIN` and `GOPATH`, and it
+builds the program from the same checkout as the plugin.
 
 ## The floating pane that read the keys
 

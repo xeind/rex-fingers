@@ -23,22 +23,23 @@ goes to the clipboard. A port of
 You need Go 1.26 or newer, git, Rex, and a clipboard command: `pbcopy`
 on a Mac, or `wl-copy`, `xclip`, or `xsel` on Linux.
 
-1. Build the program and clone the Lua plugin at the same tag:
+1. Clone the plugin and build the program into its `bin/` folder:
 
    ```sh
-   V=v0.4.1
-   go install github.com/xeind/rex-fingers@$V
-   git clone --branch $V --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
-   "$(go env GOPATH)/bin/rex-fingers" version   # prints v0.4.1
+   git clone --branch v0.4.1 --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
+   go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
+   ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version   # prints v0.4.1
    ```
 
-2. Add to `~/.config/rex/init.lua`, with `binary` as the absolute path
-   from step 1:
+   The program lands there whatever `GOBIN` or `GOPATH` say.
+
+2. Add to `~/.config/rex/init.lua`:
 
    ```lua
-   local fingers = dofile(os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers/lua/rex-fingers/init.lua")
+   local fingers_dir = os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers"
+   local fingers = dofile(fingers_dir .. "/lua/rex-fingers/init.lua")
    fingers.setup{
-     binary = os.getenv("HOME") .. "/go/bin/rex-fingers",
+     binary = fingers_dir .. "/bin/rex-fingers",
    }
    ```
 
@@ -48,6 +49,29 @@ on a Mac, or `wl-copy`, `xclip`, or `xsel` on Linux.
 Tested with Rex for Mac 0.1.0 (2044) in nushell, bash, and zsh. On Linux
 only the unit tests have run. rex-fingers makes no network call after the
 install.
+
+## Update
+
+Move the clone to the new tag and build again:
+
+```sh
+git -C ~/.config/rex/plugins/rex-fingers fetch --depth 1 origin tag v0.4.1
+git -C ~/.config/rex/plugins/rex-fingers checkout v0.4.1
+go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
+```
+
+Then run `rex config reload`.
+
+An older install used `go install`, and its `binary` names
+`~/go/bin/rex-fingers` or another Go folder. After the update, set
+`binary` as in install step 2, then delete the old program. It is in `go env GOBIN`, or in
+`$(go env GOPATH)/bin` when `GOBIN` is empty. A build with `GOPATH` set to
+the plugin folder left a read-only `pkg/` folder there. Delete it:
+
+```sh
+chmod -R u+w ~/.config/rex/plugins/rex-fingers/pkg
+rm -r ~/.config/rex/plugins/rex-fingers/pkg
+```
 
 ## Copy to agent
 
@@ -83,7 +107,7 @@ Every option, with its default. An unknown name fails `rex config check`.
 
 ```lua
 fingers.setup{
-  binary = "",                    -- absolute path of rex-fingers; set it, or a login shell starts first
+  binary = "",                    -- absolute path of rex-fingers; set it: the in-pane runs search the Rex server's PATH
   key = "alt+f",                  -- any Rex key or sequence; false binds nothing
   window_key = "alt+shift+f",     -- a key that hints every pane of the window; false binds nothing
   overlay = "pane",               -- "pane": draw into the pane; "float": a floating pane over yours
@@ -137,11 +161,12 @@ option.
 
 | Symptom | Do |
 | --- | --- |
-| `go: command not found` | `brew install go`, then repeat install step 1. |
+| `go: command not found` | `brew install go`, then run the `go build` line of install step 1. |
 | Nothing happens on the key. | `rex config check`, then `rex keymap \| grep rex_fingers`. |
 | Every run is slow. | Set `binary`. The first run after an install is slow once while macOS checks the program. |
+| An action or `copy_command` says `command not found`. | Actions get the Rex server's `PATH`, `/usr/bin:/bin:/usr/sbin:/sbin` on a Mac. Name the program by its absolute path. |
 | Hint letters stayed in the pane. | Press the key again, then <kbd>Esc</kbd>, or run `rex do rex_fingers_cancel`. A config reload while hints were up causes this. |
-| `flag provided but not defined` | Install the program and the plugin at the same tag. |
+| `flag provided but not defined` | The program is older than the plugin. Run the `go build` line again, and check that `binary` names the clone's `bin/rex-fingers`. |
 | A Lua error the config check misses. | `rex server logs` shows it. |
 
 ## License

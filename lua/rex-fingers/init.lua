@@ -19,8 +19,10 @@ local terminal = "com.superlogical.terminal"
 -- Every option, with its default. The names and defaults follow
 -- tmux-fingers where Rex allows it.
 local defaults = {
-  -- Absolute path of the rex-fingers binary. Empty looks it up on PATH
-  -- through the login shell, which is slower to start.
+  -- Absolute path of the rex-fingers binary. Empty looks it up on PATH:
+  -- the float through the login shell, which is slower to start; the
+  -- in-pane runs on the Rex server's PATH, /usr/bin:/bin:/usr/sbin:/sbin
+  -- on a Mac, which holds no rex-fingers.
   binary = "",
   -- Key to bind, or false to bind nothing. tmux-fingers' key is
   -- "ctrl+b>shift+f".
