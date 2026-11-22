@@ -34,12 +34,12 @@ Clone the plugin next to your config, then build the program with Go
 they always match:
 
 ```sh
-git clone --branch v0.4.1 --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
+git clone --branch v0.4.2 --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
 go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
 ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version
 ```
 
-Check: the last command prints `v0.4.1`. `GOBIN` and `GOPATH` do not
+Check: the last command prints `v0.4.2`. `GOBIN` and `GOPATH` do not
 change where the program lands, and git ignores `bin/`. To move an
 existing install to a new tag, see [Update](../README.md#update).
 

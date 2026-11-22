@@ -26,9 +26,9 @@ on a Mac, or `wl-copy`, `xclip`, or `xsel` on Linux.
 1. Clone the plugin and build the program into its `bin/` folder:
 
    ```sh
-   git clone --branch v0.4.1 --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
+   git clone --branch v0.4.2 --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
    go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
-   ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version   # prints v0.4.1
+   ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version   # prints v0.4.2
    ```
 
    The program lands there whatever `GOBIN` or `GOPATH` say.
@@ -55,8 +55,8 @@ install.
 Move the clone to the new tag and build again:
 
 ```sh
-git -C ~/.config/rex/plugins/rex-fingers fetch --depth 1 origin tag v0.4.1
-git -C ~/.config/rex/plugins/rex-fingers checkout v0.4.1
+git -C ~/.config/rex/plugins/rex-fingers fetch --depth 1 origin tag v0.4.2
+git -C ~/.config/rex/plugins/rex-fingers checkout v0.4.2
 go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
 ```
 
