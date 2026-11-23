@@ -83,7 +83,7 @@ each wish to its option. For each change:
 | Path | Holds |
 | --- | --- |
 | `main.go` | package `main`: one call to `cli.Main`. It stays at the root so that `go install` of the module path builds the program |
-| `internal/cli/cli.go` | CLI: `show`, `patterns`, `layouts`, `version`; action dispatch |
+| `internal/cli/cli.go` | CLI: `show`, `patterns`, `layouts`, `version`, `protocol`; action dispatch |
 | `internal/cli/pane.go` | CLI: `draw`, `press`, `restore` for `overlay = "pane"`, one pane or several `--pane` specs; each prints one JSON object; `runState` and `recover` for a run left without restore; `locate` and `findOffset` for the page a scrolled pane shows |
 | `internal/cli/target.go` | `resolveTarget`: a match to a URL, a folder, a file, or the nearest folder of a missing path; `openTarget` for `:open:` and `:reveal:`; `runOpener`, which a test replaces |
 | `internal/cli/await.go` | the background wait of `draw --await-views`, for `follow_scroll` |

@@ -16,6 +16,14 @@ local M = {}
 
 local terminal = "com.superlogical.terminal"
 
+-- The protocol this plugin needs from the program: `rex-fingers protocol`
+-- prints the one the binary speaks. A binary built before the plugin was
+-- updated rejects the flags it does not know, so setup warns.
+local protocol = 2
+-- The protocol the configured binary reported, read by setup. A flag it
+-- does not know is not sent; without a check it is taken to be current.
+local program_protocol = protocol
+
 -- Every option, with its default. The names and defaults follow
 -- tmux-fingers where Rex allows it.
 local defaults = {
@@ -429,6 +437,20 @@ function M.setup(user)
   end
   if opts.overlay ~= "float" and opts.overlay ~= "pane" then
     error("rex-fingers: overlay must be \"float\" or \"pane\"", 0)
+  end
+  -- A binary older than the plugin fails on flags it does not know, on
+  -- the first key, with no hint why. Say it once, when the config loads.
+  -- Without an absolute binary the PATH here may not be the one the runs
+  -- see, so nothing is checked.
+  if opts.binary ~= "" then
+    local ok, r = pcall(rex.exec, { opts.binary, "protocol" }, { timeout = 2 })
+    local have = ok and r and r.ok and tonumber((r.stdout or ""):match("%d+"))
+    -- No protocol command at all: version 1, up to v0.4.2.
+    program_protocol = have or 1
+    if not have or have < protocol then
+      rex.log("warn", string.format("Fingers: %s speaks protocol %s and the plugin needs %d; build it again",
+        opts.binary, have and tostring(have) or "1 or none", protocol))
+    end
   end
   -- The in-pane keys are bound only when a run can draw in a pane.
   local in_pane_keys = opts.overlay == "pane" or opts.window_key

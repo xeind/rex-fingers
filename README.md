@@ -166,7 +166,7 @@ option.
 | Every run is slow. | Set `binary`. The first run after an install is slow once while macOS checks the program. |
 | An action or `copy_command` says `command not found`. | Actions get the Rex server's `PATH`, `/usr/bin:/bin:/usr/sbin:/sbin` on a Mac. Name the program by its absolute path. |
 | Hint letters stayed in the pane. | Press the key again, then <kbd>Esc</kbd>, or run `rex do rex_fingers_cancel`. A config reload while hints were up causes this. |
-| `flag provided but not defined` | The program is older than the plugin. Run the `go build` line again, and check that `binary` names the clone's `bin/rex-fingers`. |
+| `flag provided but not defined`, or `speaks protocol ... build it again` in `rex server logs` | The program is older than the plugin. Run the `go build` line again, and check that `binary` names the clone's `bin/rex-fingers`. |
 | A Lua error the config check misses. | `rex server logs` shows it. |
 
 ## License

@@ -48,6 +48,15 @@ func version() string {
 	return info.Main.Version
 }
 
+// protocol numbers the flags and replies the Lua plugin relies on. The
+// plugin carries the number it needs and warns when the binary prints a
+// lower one, or none: a binary older than the plugin rejects new flags.
+// Raise it with every flag or reply field the plugin starts to use.
+//
+//	1  everything up to v0.4.2, which has no protocol command
+//	2  the protocol command
+const protocol = 2
+
 // The special action values, as in tmux-fingers, and :reveal:, which is
 // not in tmux-fingers.
 const (
@@ -91,6 +100,8 @@ func Main() {
 		}
 	case "version":
 		fmt.Println(version())
+	case "protocol":
+		fmt.Println(protocol)
 	default:
 		usage()
 		os.Exit(2)
@@ -103,6 +114,7 @@ func usage() {
        rex-fingers patterns
        rex-fingers layouts
        rex-fingers version
+       rex-fingers protocol
 
 flags of show:
   --vt-file FILE          the pane's VT capture; read and deleted

@@ -153,6 +153,16 @@ A paste goes to the first pane, the one the key was pressed in, and
 `--cwd` is its directory. The run is stored under every member block, and
 `finish` clears and restores them all.
 
+## Plugin and program versions
+
+`rex-fingers protocol` prints the number of the flags and replies the
+plugin relies on; `init.lua` carries the number it needs. `setup` warns
+in the server log when the binary's is lower, or when it has no
+`protocol` command at all, and records it in `program_protocol`. A flag
+newer than the binary is then not sent. Without this, a binary built
+before the plugin was updated fails on the first unknown flag, at the
+first key.
+
 ## A scrolled pane: `follow_scroll = true`
 
 A pane scrolled up shows its scrollback, and the steps above hint its
