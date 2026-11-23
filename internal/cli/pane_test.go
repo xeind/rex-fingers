@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/xeind/rex-fingers/internal/inpane"
 	"github.com/xeind/rex-fingers/internal/screen"
 )
 
@@ -165,14 +166,27 @@ func TestParsePaneSpec(t *testing.T) {
 	if err != nil || p.tty != "/dev/ttys003" || !p.cursor || !p.wrap {
 		t.Fatalf("defaults: %+v, %v", p, err)
 	}
+	p, err = parsePaneSpec("tty=/tmp/out,vt=/tmp/y.vt,rows=10,remote=true")
+	if err != nil || !p.remote {
+		t.Fatalf("remote: %+v, %v", p, err)
+	}
 	p, err = parsePaneSpec("pid=7,vt=/tmp/y.vt,rows=10,remote_paths=true")
 	if err != nil || !p.remotePaths {
 		t.Fatalf("remote_paths: %+v, %v", p, err)
 	}
-	for _, bad := range []string{"rows", "pid=x,vt=a,rows=1", "size=3,vt=a,rows=1", "remote_paths=maybe,vt=a,rows=1"} {
+	for _, bad := range []string{"rows", "pid=x,vt=a,rows=1", "size=3,vt=a,rows=1", "remote=maybe,vt=a,rows=1", "remote_paths=maybe,vt=a,rows=1"} {
 		if _, err := parsePaneSpec(bad); err == nil {
 			t.Errorf("parsePaneSpec(%q) accepted", bad)
 		}
+	}
+}
+
+// A remote pane's process ID names a process on another machine, so it is
+// never looked up here: a remote pane must name its file.
+func TestRemotePaneNeverLooksUpItsPid(t *testing.T) {
+	p := paneSpec{pid: os.Getpid(), remote: true, vtFile: "/tmp/x.vt", rows: 1}
+	if err := p.resolve(); err == nil {
+		t.Fatalf("resolved a remote pane by pid to %q", p.tty)
 	}
 }
 
@@ -196,6 +210,47 @@ func runPane(t *testing.T, name string, args ...string) map[string]any {
 		t.Fatalf("%s: reading the reply: %v", name, err)
 	}
 	return got
+}
+
+// A remote pane's frame and restore go to its file, each appended, and
+// draw names the writer to run on the pane's machine.
+func TestRemotePaneWritesToItsFile(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	dir := t.TempDir()
+	vt := filepath.Join(dir, "pane.vt")
+	if err := os.WriteFile(vt, []byte("see /tmp/a\r\nend"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "rex-fingers-host-test.out")
+	common := []string{"--remote", "--tty", out, "--vt-file", vt, "--rows", "2", "--cols", "20"}
+
+	got := runPane(t, "draw", append([]string{"--begin"}, common...)...)
+	if got["hints"] != float64(1) {
+		t.Fatalf("draw reply: %v", got)
+	}
+	writer, ok := got["writer"].([]any)
+	if !ok || len(writer) != len(inpane.WriterCommand()) || got["writer_ready"] != inpane.WriterReady {
+		t.Fatalf("draw reply has no writer: %v", got)
+	}
+	frame, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(frame, []byte(inpane.Begin)) {
+		t.Fatalf("frame does not begin with Begin: %q", frame)
+	}
+
+	runPane(t, "restore", common...)
+	all, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(all, frame) || len(all) == len(frame) {
+		t.Fatalf("restore did not append to the frame: %q", all)
+	}
+	if _, err := os.Stat(runFile(out)); err == nil {
+		t.Error("restore left the run file")
+	}
 }
 
 // On a pane whose paths are on another machine, as in ssh, :reveal: on a
@@ -236,6 +291,11 @@ func TestRemotePathIsCopiedNotOpened(t *testing.T) {
 	got, _ = pick("see https://example.com/a", "--remote-paths")
 	if len(opened) == 0 || opened[0] != "https://example.com/a" || got["remote_path"] != nil {
 		t.Fatalf("remote URL: opened %v, reply %v", opened, got)
+	}
+	// A pane on a Rex host is marked --remote, which implies the same.
+	got, copied = pick("see /etc/hostname", "--remote")
+	if opened != nil || got["remote_path"] != true || copied != "/etc/hostname" {
+		t.Fatalf("remote pane: opened %v, reply %v, copied %q", opened, got, copied)
 	}
 	pick("see /etc/hostname")
 	if len(opened) == 0 {

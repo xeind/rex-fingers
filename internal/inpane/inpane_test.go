@@ -2,8 +2,12 @@ package inpane
 
 import (
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/xeind/rex-fingers/internal/screen"
 )
@@ -35,6 +39,62 @@ func TestRestoreRowsLeavesTheCursorAlone(t *testing.T) {
 	want := "\x1b7\x1b[1;1H\x1b[0m\x1b[2Ktwo\x1b8\x1b[0m\x1b[?25h"
 	if got != want {
 		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+}
+
+// A process with no terminal gives the writer nothing to write to: it
+// prints WriterFailed and exits before it runs cat.
+func TestWriterFailsWithoutATerminal(t *testing.T) {
+	sleep := exec.Command("sleep", "5")
+	sleep.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := sleep.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer sleep.Process.Kill()
+	argv := append(WriterCommand(), strconv.Itoa(sleep.Process.Pid))
+	out, err := exec.Command(argv[0], argv[1:]...).Output()
+	if err == nil {
+		t.Fatalf("writer exited 0; output %q", out)
+	}
+	if string(out) != WriterFailed {
+		t.Fatalf("got %q, want %q", out, WriterFailed)
+	}
+}
+
+// The reader prints its mark, then each byte as two hex digits on a row.
+// Without a terminal stty fails and the rest still runs.
+func TestReaderPrintsKeysAsHex(t *testing.T) {
+	argv := ReaderCommand(5)
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Stdin = strings.NewReader("aS\x1b")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("reader: %v", err)
+	}
+	if want := ReaderMark + "61\n53\n1b\n"; string(out) != want {
+		t.Fatalf("got %q, want %q", out, want)
+	}
+}
+
+// A reader nobody closes ends itself when its lifetime is over.
+func TestReaderEndsItself(t *testing.T) {
+	argv := ReaderCommand(1)
+	cmd := exec.Command(argv[0], argv[1:]...)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdin.Close()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("the reader was still alive 5 s after a lifetime of 1 s")
 	}
 }
 

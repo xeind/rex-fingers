@@ -103,3 +103,43 @@ func TTY(pid int) (string, error) {
 	}
 	return "/dev/" + name, nil
 }
+
+// Writer markers: the writer prints one of them on its own screen, which
+// the caller reads to learn whether it reached the pane's tty.
+const (
+	WriterReady  = "rex-fingers-writer-ready"
+	WriterFailed = "rex-fingers-writer-failed"
+)
+
+// WriterCommand is the argv of a program that copies its input to the tty
+// of a process, for a pane on another machine. The caller appends the
+// process ID. It finds the tty as TTY does, puts its own terminal in raw
+// mode so the bytes pass unchanged, prints WriterReady, and runs cat. It
+// needs only sh, ps, tr, stty, and cat, which every Unix host has.
+func WriterCommand() []string {
+	script := `t=$(ps -o tty= -p "$1" | tr -d ' ')
+case "$t" in ""|"?"|"??") printf ` + WriterFailed + `; exit 1 ;; esac
+[ -w "/dev/$t" ] || { printf ` + WriterFailed + `; exit 1; }
+stty raw -echo || { printf ` + WriterFailed + `; exit 1; }
+printf ` + WriterReady + `
+exec cat > "/dev/$t"`
+	return []string{"sh", "-c", script, "sh"}
+}
+
+// ReaderMark is what the reader prints before the first key, so that its
+// screen is told apart from one that has not started.
+const ReaderMark = "R"
+
+// ReaderCommand is the argv of a program that reports the keys typed into
+// its terminal, for a pane on another machine: it sets the terminal raw,
+// prints ReaderMark, and then prints each byte it reads as two hex digits
+// and a newline. It ends itself after lifetime seconds, so a reader left
+// behind does not keep the focus for good. It needs only sh, stty, sleep,
+// and hexdump.
+func ReaderCommand(lifetime int) []string {
+	script := `stty raw -echo
+printf ` + ReaderMark + `
+(sleep "$1"; kill $$) >/dev/null 2>&1 &
+exec hexdump -v -e '1/1 "%02x\n"'`
+	return []string{"sh", "-c", script, "sh", strconv.Itoa(lifetime)}
+}

@@ -44,8 +44,12 @@ import (
 type paneSpec struct {
 	tty string
 	pid int
+	// remote marks a pane on another machine, such as a Rex host. Its tty
+	// is out of reach, so tty names a local file instead: every write is
+	// appended to it, and the caller sends the bytes to the pane.
+	remote bool
 	// remotePaths marks a pane whose paths are on another machine, such as
-	// one running ssh, though its tty is here.
+	// one running ssh, though its tty is here. A remote pane's are too.
 	remotePaths bool
 	vtFile      string
 	// textFile is the same screen as unwrapped text; it says which rows
@@ -486,6 +490,8 @@ func parsePaneSpec(s string) (paneSpec, error) {
 			p.cursor, err = strconv.ParseBool(value)
 		case "wrap":
 			p.wrap, err = strconv.ParseBool(value)
+		case "remote":
+			p.remote, err = strconv.ParseBool(value)
 		case "remote_paths":
 			p.remotePaths, err = strconv.ParseBool(value)
 		default:
@@ -532,6 +538,11 @@ func (p *paneSpec) resolve() error {
 		return fmt.Errorf("a pane needs vt and rows")
 	}
 	if p.tty == "" {
+		// A remote pane's pid is a process on another machine; looking it
+		// up here would find nothing, or an unrelated local terminal.
+		if p.remote {
+			return fmt.Errorf("a remote pane needs tty, the file to write to")
+		}
 		if p.pid <= 0 {
 			return fmt.Errorf("a pane needs tty or pid")
 		}
@@ -544,7 +555,13 @@ func (p *paneSpec) resolve() error {
 	return nil
 }
 
+// open opens the pane's tty for writing. A remote pane's is a local file,
+// appended to, since one call may write more than once: a restore and
+// then the copy's OSC 52.
 func (p *paneSpec) open() (*os.File, error) {
+	if p.remote {
+		return os.OpenFile(p.tty, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	}
 	return os.OpenFile(p.tty, os.O_WRONLY, 0)
 }
 
@@ -589,6 +606,7 @@ func paneCommand(name string, args []string) error {
 	fs.IntVar(&r.single.cols, "cols", 0, "")
 	fs.BoolVar(&r.single.cursor, "cursor-visible", true, "")
 	fs.BoolVar(&r.single.wrap, "wraparound", true, "")
+	fs.BoolVar(&r.single.remote, "remote", false, "")
 	fs.BoolVar(&r.single.remotePaths, "remote-paths", false, "")
 	fs.Usage = usage
 	if err := fs.Parse(args); err != nil {
@@ -601,6 +619,9 @@ func paneCommand(name string, args []string) error {
 		}
 		if r.single.tty == "" && r.single.pid <= 0 {
 			return fmt.Errorf("--tty or --pid is required")
+		}
+		if r.single.remote && r.single.tty == "" {
+			return fmt.Errorf("--remote needs --tty, the file to write to")
 		}
 		specs = []paneSpec{r.single}
 	}
@@ -808,7 +829,19 @@ func (r paneRun) draw(specs []paneSpec) error {
 			scrolled++
 		}
 	}
-	return reply(map[string]any{"tty": specs[0].tty, "panes": ttys(specs), "hints": n, "scrolled": scrolled})
+	result := map[string]any{"tty": specs[0].tty, "panes": ttys(specs), "hints": n, "scrolled": scrolled}
+	// The caller starts this program on the remote pane's machine, with the
+	// pane's process ID appended, and sends it what draw wrote. The argv
+	// comes from here so the plugin holds no shell line.
+	for _, p := range specs {
+		if p.remote {
+			result["writer"] = inpane.WriterCommand()
+			result["writer_ready"] = inpane.WriterReady
+			result["writer_failed"] = inpane.WriterFailed
+			break
+		}
+	}
+	return reply(result)
 }
 
 func (r paneRun) press(specs []paneSpec) error {
@@ -852,7 +885,9 @@ func (r paneRun) press(specs []paneSpec) error {
 		}
 		return reply(map[string]any{"done": false, "typed": typed})
 	}
-	if sel.Target != nil && *r.opts.flash > 0 && !moved {
+	// A remote pane gets the flash and the restore in one write, after this
+	// call returns, so the flash would never show; skip its wait.
+	if sel.Target != nil && *r.opts.flash > 0 && !moved && !specs[pane].remote {
 		if tty, err := specs[pane].open(); err == nil {
 			ovs[pane].Flash(tty, sel.Target)
 			tty.Close()
@@ -886,7 +921,7 @@ func (r paneRun) press(specs []paneSpec) error {
 	// A path on another machine would open this machine's file of that
 	// name, or its nearest folder. Every pick is copied first, so the path
 	// is copied and nothing opens. A URL opens as usual.
-	if specs[pane].remotePaths && (action == actionOpen || action == actionReveal) && !namesURL(sel.Target.Text) {
+	if p := specs[pane]; (p.remote || p.remotePaths) && (action == actionOpen || action == actionReveal) && !namesURL(sel.Target.Text) {
 		action = actionCopy
 		result["remote_path"] = true
 	}

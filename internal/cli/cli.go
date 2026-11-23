@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/xeind/rex-fingers/internal/hints"
+	"github.com/xeind/rex-fingers/internal/inpane"
 	"github.com/xeind/rex-fingers/internal/patterns"
 	"github.com/xeind/rex-fingers/internal/rexcli"
 	"github.com/xeind/rex-fingers/internal/screen"
@@ -56,7 +57,9 @@ func version() string {
 //	1  everything up to v0.4.2, which has no protocol command
 //	2  the protocol command
 //	3  --remote-paths, and remote_path in press's reply
-const protocol = 3
+//	4  --remote, the writer fields in draw's reply, and the reader
+//	   command
+const protocol = 4
 
 // The special action values, as in tmux-fingers, and :reveal:, which is
 // not in tmux-fingers.
@@ -103,6 +106,19 @@ func Main() {
 		fmt.Println(version())
 	case "protocol":
 		fmt.Println(protocol)
+	case "reader":
+		// The key reader for a pane on a Rex host, which the plugin starts
+		// on the host. The argv comes from here so the plugin holds no
+		// shell line.
+		fs := flag.NewFlagSet("reader", flag.ExitOnError)
+		lifetime := fs.Int("lifetime", 20, "")
+		fs.Usage = usage
+		fs.Parse(os.Args[2:])
+		err := reply(map[string]any{"command": inpane.ReaderCommand(*lifetime), "mark": inpane.ReaderMark})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	default:
 		usage()
 		os.Exit(2)
@@ -116,6 +132,7 @@ func usage() {
        rex-fingers layouts
        rex-fingers version
        rex-fingers protocol
+       rex-fingers reader [--lifetime SECONDS]
 
 flags of show:
   --vt-file FILE          the pane's VT capture; read and deleted
@@ -138,9 +155,13 @@ flags of show:
 flags of draw, press, and restore, which draw in the pane's own tty and
 also take the flags of show that pick and style the hints:
   --tty PATH              the pane's tty; or --pid N of a process on it
+  --remote                the pane is on another machine: --tty names a
+                          local file each write is appended to, for the
+                          caller to send on; draw's reply holds the argv
+                          of a writer to run on that machine
   --remote-paths          (press) the pane's paths are on another machine,
                           as in ssh: :open: and :reveal: copy a path and
-                          open nothing
+                          open nothing; --remote implies it
   --cols N                the pane's column count
   --typed LETTERS         hint letters typed so far
   --begin                 (draw) save the cursor before the first draw, and
