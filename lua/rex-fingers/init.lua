@@ -581,8 +581,15 @@ function M.setup(user)
 
   -- handle sends one hint key to the program and acts on its answer.
   local function handle(ctx, run, key, mod)
-    local r, err = exec(run.argv("press", currents(run)), "--typed", run.typed, "--key", key, "--modifier", mod,
+    local argv = run.argv("press", currents(run))
+    local r, err = exec(argv, "--typed", run.typed, "--key", key, "--modifier", mod,
                         "--session", run.session_id, "--block", run.origin)
+    -- A program older than v0.4.2 rejects --session before it reads a
+    -- file, so the same call without it still picks.
+    if not r and tostring(err):find("flag provided but not defined: %-session") then
+      rex.log("warn", "Fingers: rex-fingers is older than the plugin; build it again")
+      r, err = exec(argv, "--typed", run.typed, "--key", key, "--modifier", mod)
+    end
     if not r then error(err, 0) end
     if not r.done then
       run.typed = r.typed or ""
