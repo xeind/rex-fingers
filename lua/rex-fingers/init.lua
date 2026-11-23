@@ -255,6 +255,60 @@ local function exec(argv, ...)
   return rex.json.decode(r.stdout)
 end
 
+-- Panes of a Rex host. A session on a host runs on the host's server, but
+-- this plugin and the program run on the app's machine: the pane's process
+-- and tty are the host's, and ps here finds nothing, or a local process
+-- with the same number, whose terminal would be painted. So the action
+-- refuses such a pane before it looks a process up (issue #1).
+
+-- this_host_id returns the ID of this machine's Rex server, read from the
+-- file Rex keeps it in, or false when there is none.
+local this_host
+local function this_host_id()
+  if this_host == nil then
+    this_host = false
+    local home = os.getenv("HOME") or ""
+    local paths = {
+      home .. "/Library/Application Support/rex/host-id",
+      (os.getenv("XDG_STATE_HOME") or (home .. "/.local/state")) .. "/rex/host-id",
+    }
+    for _, path in ipairs(paths) do
+      local f = io.open(path)
+      if f then
+        local id = (f:read("*l") or ""):gsub("%s", "")
+        f:close()
+        if id ~= "" then
+          this_host = id
+          break
+        end
+      end
+    end
+  end
+  return this_host
+end
+
+-- remote_host returns the host ID of the server that runs the session,
+-- when that server is on another machine, or nil. A session stays on its
+-- server, so the answer is kept per session. Without this machine's ID,
+-- or when the call fails, the pane counts as local, as before this check.
+local session_hosts = {}
+local function remote_host(session_id)
+  local known = session_hosts[session_id]
+  if known ~= nil then return known or nil end
+  local mine = this_host_id()
+  local host = false
+  if mine and rex.call then
+    local ok, status = pcall(rex.call, "server.status")
+    if ok and type(status) == "table" and status.host_id and status.host_id ~= mine then
+      host = status.host_id
+    end
+  end
+  session_hosts[session_id] = host
+  return host or nil
+end
+
+local not_on_hosts = "Fingers: hints on panes of a Rex host are not supported yet; see https://github.com/xeind/rex-fingers/issues/1"
+
 -- finish forgets the run. With restore, it also repaints the pane as it
 -- was.
 local function finish(block_id, run, restore)
@@ -268,6 +322,7 @@ end
 -- hints. The record of the run here is gone, so the program decides from
 -- the state it kept beside the capture.
 local function recover_pane(opts, ctx)
+  if remote_host(ctx.session_id) then return end
   local target = { session_id = ctx.session_id, block_id = ctx.block_id }
   local process = rex.block.call(terminal, "process", target)
   local fg = process and (process.foreground or process.child)
@@ -518,6 +573,9 @@ function M.setup(user)
       if scope == "window" and not in_pane_keys then
         error("Fingers: window scope needs overlay = \"pane\" or window_key", 0)
       end
+      -- Before anything looks up the pane's process, in either overlay:
+      -- the float would run the binary path on the host.
+      if remote_host(ctx.session_id) then error(not_on_hosts, 0) end
       -- The key toggles: with hints already up in the pane, it puts the
       -- pane back.
       local active = state[ctx.block_id]

@@ -61,6 +61,35 @@ Tested: not recorded.
 `rect` in window fractions; a floating layer's layout is relative to its
 bounds. Used by the rectangle lookup in `init.lua`. Tested: not recorded.
 
+## Rex hosts
+
+Tested 2026-11-22: CLI and both servers `0.1.0-preview.22` (`a086db17`),
+Rex for Mac snapshot 2083, a Mac on arm64 and an Ubuntu 26.04 arm64 host
+added as `ssh://cordovan`, reached over Tailscale.
+
+**A key bound to an action works in a host's tab; a key bound to a
+function does not.** With the plugin only in the Mac's config, alt+f in a
+session on the host ran `rex_fingers`: its `rex.exec` ran here, and
+`rex.block.call` read the host's pane. Before the check it failed with
+`ps -p 926039: exit status 1`, the pid of the host's shell. The hint
+letters, bound with `rex.bind(key, fn)`, reached the shell: hints drawn
+through a hidden block on the host, then `s` typed `s`. Client scripts
+run on the server they are loaded on (`client.set_script`), and a key
+reaches a Lua function only if one is bound to it there.
+
+**`server.status` gives a `host_id` per server**, the same ID Rex keeps in
+`host-id` under `~/Library/Application Support/rex` on a Mac and
+`~/.local/state/rex` on Linux. A server started with another
+`--state-dir` has its own. Used by `remote_host` in `init.lua`.
+
+**A config action has no `rex.sleep`; a `rex do` script has.** In an
+action, `rex.sleep` is nil and `rex.call`, `rex.exec`, `os.clock`, and
+`os.time` exist (a probe action on a throwaway server).
+
+**`rex.server(LABEL)` offers `block`, `call`, and `session`, no `exec`.**
+A script cannot start a program on a host directly; `session.new_block`
+with `options = { shell = "none", command = argv }` starts a hidden one.
+
 ## The clipboard
 
 **OSC 52.** Rex for Mac build 1825 did not forward OSC 52 to the

@@ -154,8 +154,12 @@ option.
   the pane, but hides its top two rows.
 - No multi-select and no jump mode: Rex cannot move a pane's cursor from
   outside.
-- On a remote Rex server, set `copy_command` to reach your clipboard,
-  such as `ssh laptop pbcopy`.
+- No hints on a pane of a Rex host yet: the key says so and stops
+  ([issue #1](https://github.com/xeind/rex-fingers/issues/1)). A pane
+  running `ssh` works. A second Rex server on the same machine counts as
+  a host.
+- With the plugin in the config of a Rex server on another machine, set
+  `copy_command` to reach your clipboard, such as `ssh laptop pbcopy`.
 
 ## Troubleshooting
 

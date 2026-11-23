@@ -153,6 +153,29 @@ A paste goes to the first pane, the one the key was pressed in, and
 `--cwd` is its directory. The run is stored under every member block, and
 `finish` clears and restores them all.
 
+## A pane on a Rex host
+
+A session on a Rex host runs on the host's server, but the app runs the
+actions of this machine's config: `rex.block.call` reads the host's pane
+while `rex.exec` runs `rex-fingers` here. The pane's process and tty are
+the host's. `ps -p` here finds nothing, or a local process with the same
+number, whose terminal the program would paint (issue #1). REX-FACTS.md
+has the measurements.
+
+So the action refuses such a pane first, before it looks up a process,
+in either overlay: `remote_host` compares `rex.call("server.status")
+.host_id` with this machine's, read from the `host-id` file Rex keeps
+(`~/Library/Application Support/rex` on a Mac, `$XDG_STATE_HOME/rex` on
+Linux). Without that file, or when the call fails, the pane counts as
+local, as before. The answer is kept per session. A second server on the
+same machine, with its own state directory, has its own ID and counts as
+a host.
+
+Drawing on a host pane works through a hidden block on the host that
+copies frames to the pane's tty. Picking does not: the hint letters are
+function bindings, and the app sends a host tab's keys to the host's
+server, where this plugin binds nothing.
+
 ## Plugin and program versions
 
 `rex-fingers protocol` prints the number of the flags and replies the
