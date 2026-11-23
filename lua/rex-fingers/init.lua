@@ -12,6 +12,11 @@
 -- the key; otherwise they return nothing and the key goes on to the pane.
 -- The pane is repainted from the capture when a hint is picked or the run is
 -- cancelled. There is no key mode, so Rex for Mac shows no key list.
+--
+-- On a pane of a Rex host the tty and those key bindings are out of reach:
+-- the session runs on the host, this plugin on the app's machine. A hidden
+-- block on the host copies the frames to the pane's tty, and a small
+-- floating pane there takes the focus and reports the keys. See host_run.
 local M = {}
 
 local terminal = "com.superlogical.terminal"
@@ -19,7 +24,7 @@ local terminal = "com.superlogical.terminal"
 -- The protocol this plugin needs from the program: `rex-fingers protocol`
 -- prints the one the binary speaks. A binary built before the plugin was
 -- updated rejects the flags it does not know, so setup warns.
-local protocol = 3
+local protocol = 4
 -- The protocol the configured binary reported, read by setup. A flag it
 -- does not know is not sent; without a check it is taken to be current.
 local program_protocol = protocol
@@ -255,11 +260,11 @@ local function exec(argv, ...)
   return rex.json.decode(r.stdout)
 end
 
--- Panes of a Rex host. A session on a host runs on the host's server, but
--- this plugin and the program run on the app's machine: the pane's process
--- and tty are the host's, and ps here finds nothing, or a local process
--- with the same number, whose terminal would be painted. So the action
--- refuses such a pane before it looks a process up (issue #1).
+-- Panes on another machine. A session on a Rex host runs there, but this
+-- Lua and the program run here, on the app's machine: the pane's tty and
+-- process are out of reach. So the program writes each frame to a local
+-- file (--remote), and a writer block on the host copies what it is sent
+-- to the pane's tty. The program gives the writer's argv in draw's reply.
 
 -- this_host_id returns the ID of this machine's Rex server, read from the
 -- file Rex keeps it in, or false when there is none.
@@ -307,23 +312,120 @@ local function remote_host(session_id)
   return host or nil
 end
 
-local not_on_hosts = "Fingers: hints on panes of a Rex host are not supported yet; see https://github.com/xeind/rex-fingers/issues/1"
-
 -- Programs that show another machine's shell in a local pane. Their
 -- pane's tty is here, so hints draw as usual, but the paths on screen are
 -- the other machine's: the program copies them instead of opening them.
--- A binary before protocol 3 does not know the flag, so it is not sent.
 local remote_shells = { ssh = true, ["mosh-client"] = true, et = true }
+
+-- A binary before protocol 3 does not know the flag, so it is not sent.
 local function shows_remote_paths(fg)
   return remote_shells[fg.name] and program_protocol >= 3
 end
 
+-- remote_file names the local file the program writes a remote pane's
+-- frames to. The same pane gets the same name, so a run left without
+-- restore is found again, as a tty's is.
+local function remote_file(host, block_id)
+  local dir = os.getenv("TMPDIR") or "/tmp"
+  if dir:sub(-1) ~= "/" then dir = dir .. "/" end
+  return dir .. "rex-fingers-host-" .. host:sub(1, 8) .. "-" .. block_id:gsub("[^%w]", "") .. ".out"
+end
+
+-- close_leftover_writers closes the writers of runs that ended without
+-- finish, such as when the config reloaded during a run. They are hidden,
+-- so nothing else would.
+local function close_leftover_writers(session_id)
+  local live = {}
+  for _, run in pairs(state) do
+    for _, w in pairs(run.writers or {}) do live[w.block] = true end
+  end
+  local r = rex.call("session.list_blocks", { session_id = session_id })
+  for _, b in ipairs((r and r.blocks) or {}) do
+    if b.label == "fingers-writer" and not live[b.block_id] then
+      pcall(rex.call, "block.close", { session_id = session_id, block_id = b.block_id })
+    end
+  end
+end
+
+-- writer_deadline is the time start_writer stops waiting, set by a host
+-- run so that no wait passes the run's limit.
+local writer_deadline
+
+-- start_writer starts the writer for a pane on the host, with the pane's
+-- process appended to the argv draw gave, and waits until it reports that
+-- it reached the pane's tty. It returns the writer's block ID.
+local function start_writer(session_id, pid, reply)
+  local argv = {}
+  for _, a in ipairs(reply.writer) do argv[#argv + 1] = a end
+  argv[#argv + 1] = tostring(pid)
+  local b, err = rex.call("session.new_block", {
+    session_id = session_id,
+    flavor = terminal .. ".shell",
+    label = "fingers-writer",
+    options = { shell = "none", command = argv, exit = { on_completion = false } },
+  })
+  if not b then return nil, err end
+  -- About 3 s on this machine. An action has no rex.sleep, only scripts
+  -- do, so the pause runs sleep.
+  for _ = 1, 40 do
+    if writer_deadline and os.time() >= writer_deadline then break end
+    local r = rex.block.call(terminal, "format", { session_id = session_id, block_id = b.block_id, format = "text" })
+    local text = (r and r.content) or ""
+    if text:find(reply.writer_ready, 1, true) then return b.block_id end
+    if text:find(reply.writer_failed, 1, true) then break end
+    if rex.sleep then rex.sleep(0.05) else rex.exec({ "sleep", "0.05" }, { timeout = 1 }) end
+  end
+  rex.call("block.close", { session_id = session_id, block_id = b.block_id })
+  return nil, "Fingers: could not reach the pane's terminal on the host"
+end
+
+-- forward sends what the program wrote for each remote pane of a run to
+-- its writer, and empties the file. Rex takes requests up to 1 MiB, so a
+-- large frame goes in parts, cut between UTF-8 characters.
+local function forward(run)
+  for _, w in pairs(run.writers or {}) do
+    local f = io.open(w.file, "rb")
+    if f then
+      local data = f:read("*a")
+      f:close()
+      os.remove(w.file)
+      local i = 1
+      while i <= #data do
+        local j = math.min(#data, i + 262143)
+        while j > i and j < #data and data:byte(j + 1) >= 0x80 and data:byte(j + 1) < 0xC0 do j = j - 1 end
+        local ok, err = rex.block.call(terminal, "write", { session_id = run.session_id, block_id = w.block, data = data:sub(i, j) })
+        if not ok then error(err, 0) end
+        i = j + 1
+      end
+    end
+  end
+end
+
+-- close_writers ends a run's writers. A writer stays open after it exits,
+-- so its result can be read; it is closed here either way.
+local function close_writers(run)
+  for _, w in pairs(run.writers or {}) do
+    pcall(rex.call, "block.close", { session_id = run.session_id, block_id = w.block })
+    os.remove(w.file)
+  end
+  run.writers = nil
+end
+
 -- finish forgets the run. With restore, it also repaints the pane as it
--- was.
+-- was. A remote run's last bytes are sent and its writers closed.
 local function finish(block_id, run, restore)
   state[block_id] = nil
   for _, id in ipairs((run and run.blocks) or {}) do state[id] = nil end
-  if run and restore then exec(run.argv("restore", currents(run))) end
+  if not run then return end
+  local ok, err = true, nil
+  if restore then
+    ok, err = pcall(function() exec(run.argv("restore", currents(run))) end)
+  end
+  if run.writers then
+    pcall(forward, run)
+    close_writers(run)
+  end
+  if not ok then error(err, 0) end
 end
 
 -- recover_pane puts a pane back when a run was left on it without
@@ -331,6 +433,8 @@ end
 -- hints. The record of the run here is gone, so the program decides from
 -- the state it kept beside the capture.
 local function recover_pane(opts, ctx)
+  -- A remote pane's leftover run is picked up by the next draw instead,
+  -- which has a writer to send the restore through.
   if remote_host(ctx.session_id) then return end
   local target = { session_id = ctx.session_id, block_id = ctx.block_id }
   local process = rex.block.call(terminal, "process", target)
@@ -343,7 +447,25 @@ local function recover_pane(opts, ctx)
   os.remove(text)
 end
 
-local function start_in_pane(opts, ctx, args)
+-- remote_run gives a run on a remote pane its writer, once draw has
+-- written to the pane's file, and sends the frame. pid is a process on the
+-- pane's tty, on the host. A draw that wrote nothing needs no writer.
+local function remote_run(run, reply, block_id, pid, file)
+  local f = io.open(file, "rb")
+  local size = f and f:seek("end") or 0
+  if f then f:close() end
+  if size == 0 then return end
+  local writer, err = start_writer(run.session_id, pid, reply)
+  if not writer then
+    os.remove(file)
+    error(err, 0)
+  end
+  run.writers = run.writers or {}
+  run.writers[block_id] = { block = writer, file = file }
+  forward(run)
+end
+
+local function start_in_pane(opts, ctx, args, host)
   local target = { session_id = ctx.session_id, block_id = ctx.block_id }
   local modes, err = rex.block.call(terminal, "modes", target)
   if not modes then error(err, 0) end
@@ -361,18 +483,24 @@ local function start_in_pane(opts, ctx, args)
                  "--cursor-visible=" .. cursor, "--wraparound=" .. wrap,
                  "--cwd", (pwd and pwd.pwd) or "" }
   option_flags(tail, opts, args)
-  if shows_remote_paths(fg) then tail[#tail + 1] = "--remote-paths" end
+  -- A remote pane is named by its file from the start; its pid is a
+  -- process on the host.
+  local file = host and remote_file(host, ctx.block_id)
+  local pane = { "--pid", tostring(fg.pid) }
+  if file then
+    os.remove(file)
+    tail[#tail + 1] = "--remote"
+    pane = { "--tty", file }
+  elseif shows_remote_paths(fg) then
+    tail[#tail + 1] = "--remote-paths"
+  end
   local r
-  r, err = exec({ binary(opts), "draw" }, "--begin", "--pid", tostring(fg.pid), unpack(tail))
+  r, err = exec({ binary(opts), "draw", "--begin", pane[1], pane[2] }, unpack(tail))
   if not r then
     os.remove(path)
     os.remove(text)
+    if file then os.remove(file) end
     error(err, 0)
-  end
-  if r.hints == 0 then
-    os.remove(path)
-    os.remove(text)
-    return { hints = 0 }
   end
   -- argv builds a press or restore call; current is the pane's text
   -- captured now, one path per block.
@@ -385,8 +513,26 @@ local function start_in_pane(opts, ctx, args)
     end
     return a
   end
-  local run = { argv = argv, typed = "", busy = false,
+  local run = { typed = "", busy = false,
                 session_id = ctx.session_id, origin = ctx.block_id, blocks = { ctx.block_id } }
+  if file then
+    -- The shell, not the foreground program: it lives as long as the pane.
+    local ok, rerr = pcall(remote_run, run, r, ctx.block_id, (process.child or fg).pid, file)
+    if not ok then
+      -- No writer, so nothing reaches the pane. The restore still drops
+      -- the captures and the program's record of the run.
+      pcall(exec, argv("restore"))
+      os.remove(file)
+      error(rerr, 0)
+    end
+  end
+  if r.hints == 0 then
+    os.remove(path)
+    os.remove(text)
+    if run.writers then close_writers(run) end
+    return { hints = 0 }
+  end
+  run.argv = argv
   state[ctx.block_id] = run
   return { hints = r.hints }
 end
@@ -401,7 +547,8 @@ local function window_blocks(session_id, block_id)
     local ids, found = {}, false
     for _, layer in ipairs(w.layers or {}) do
       for _, b in ipairs(layer.blocks or {}) do
-        if b.creator_name == terminal then
+        -- The reader of a host run is a terminal too, and is no pane.
+        if b.creator_name == terminal and b.label ~= "fingers-reader" then
           if b.block_id == block_id then found = true else ids[#ids + 1] = b.block_id end
         end
       end
@@ -416,18 +563,27 @@ end
 
 -- pane_spec captures one pane and returns its --pane value for draw and
 -- the capture's path, or nil when the pane has no process to draw into.
-local function pane_spec(session_id, block_id)
+-- On a remote pane, given host, the spec names the pane's file and is
+-- marked remote, and it also returns the file and the pid for the writer.
+local function pane_spec(session_id, block_id, host)
   local target = { session_id = session_id, block_id = block_id }
   local process = rex.block.call(terminal, "process", target)
   local fg = process and (process.foreground or process.child)
   if not fg then return nil end
   local modes = rex.block.call(terminal, "modes", target) or {}
   local path, text, size = capture(target)
-  local spec = string.format("pid=%d,vt=%s,text=%s,rows=%d,cols=%d,cursor=%s,wrap=%s",
-    fg.pid, path, text, size.rows, size.columns,
+  local pane = "pid=" .. fg.pid
+  local file = host and remote_file(host, block_id)
+  if file then
+    os.remove(file)
+    pane = "tty=" .. file .. ",remote=true"
+  elseif shows_remote_paths(fg) then
+    pane = pane .. ",remote_paths=true"
+  end
+  local spec = string.format("%s,vt=%s,text=%s,rows=%d,cols=%d,cursor=%s,wrap=%s",
+    pane, path, text, size.rows, size.columns,
     mode_set(modes, 25) and "true" or "false", mode_set(modes, 7) and "true" or "false")
-  if shows_remote_paths(fg) then spec = spec .. ",remote_paths=true" end
-  return spec, path, text
+  return spec, path, text, file, (process.child or fg).pid
 end
 
 -- start_panes draws hints into the terminal panes in blocks at once. The
@@ -439,16 +595,17 @@ end
 -- await panes show, in the order of blocks, then draws the page each of
 -- them is scrolled to. The caller queues those copies. It returns the
 -- result and the blocks that take part.
-local function start_panes(opts, ctx, args, blocks, await)
+local function start_panes(opts, ctx, args, blocks, await, host)
   local pwd = rex.block.call(terminal, "pwd", { session_id = ctx.session_id, block_id = ctx.block_id })
-  local specs, paths, members = {}, {}, {}
+  local specs, paths, members, remotes = {}, {}, {}, {}
   for _, id in ipairs(blocks) do
-    local spec, path, text = pane_spec(ctx.session_id, id)
+    local spec, path, text, file, pid = pane_spec(ctx.session_id, id, host)
     if spec then
       specs[#specs + 1] = spec
       paths[#paths + 1] = path
       paths[#paths + 1] = text
       members[#members + 1] = id
+      if file then remotes[#remotes + 1] = { block = id, file = file, pid = pid } end
     end
   end
   if #specs == 0 then error("Fingers: no process in the panes", 0) end
@@ -467,16 +624,12 @@ local function start_panes(opts, ctx, args, blocks, await)
   local r, err = exec(argv, unpack(tail))
   if not r then
     cleanup()
+    for _, m in ipairs(remotes) do os.remove(m.file) end
     error(err, 0)
   end
-  -- A waiting draw has no count yet; the program deletes the captures
-  -- itself when it finds no hints.
-  if not await and r.hints == 0 then
-    cleanup()
-    return { hints = 0 }, {}
-  end
   -- Later calls name each pane by the tty draw found, not by pid, and
-  -- carry each pane's text captured now when current is given.
+  -- carry each pane's text captured now when current is given. A remote
+  -- pane's spec already names its file.
   local function argv(sub, current)
     local a = { binary(opts), sub }
     for i, s in ipairs(specs) do
@@ -490,6 +643,25 @@ local function start_panes(opts, ctx, args, blocks, await)
   end
   local run = { argv = argv, typed = "", busy = false,
                 session_id = ctx.session_id, origin = ctx.block_id, blocks = members }
+  for _, m in ipairs(remotes) do
+    local ok, rerr = pcall(remote_run, run, r, m.block, m.pid, m.file)
+    if not ok then
+      -- Put back the panes already drawn, then give up.
+      pcall(function() exec(argv("restore")) end)
+      pcall(forward, run)
+      close_writers(run)
+      cleanup()
+      for _, x in ipairs(remotes) do os.remove(x.file) end
+      error(rerr, 0)
+    end
+  end
+  -- A waiting draw has no count yet; the program deletes the captures
+  -- itself when it finds no hints.
+  if not await and r.hints == 0 then
+    cleanup()
+    if run.writers then close_writers(run) end
+    return { hints = 0 }, {}
+  end
   for _, id in ipairs(members) do state[id] = run end
   return { hints = r.hints, waiting = r.waiting, panes = #members }, members
 end
@@ -521,11 +693,11 @@ function M.setup(user)
   -- The in-pane keys are bound only when a run can draw in a pane.
   local in_pane_keys = opts.overlay == "pane" or opts.window_key
 
-  local function start(ctx, args, scope)
+  local function start(ctx, args, scope, host)
     if scope == "window" then
-      return (start_panes(opts, ctx, args, window_blocks(ctx.session_id, ctx.block_id)))
+      return (start_panes(opts, ctx, args, window_blocks(ctx.session_id, ctx.block_id), nil, host))
     end
-    return start_in_pane(opts, ctx, args)
+    return start_in_pane(opts, ctx, args, host)
   end
 
   -- follow_scroll hints the page each pane is scrolled to. Rex reports no scroll
@@ -561,6 +733,9 @@ function M.setup(user)
     return result
   end
 
+  -- host_run is a run on a pane of a Rex host; defined below, after press.
+  local host_run
+
   rex.action{
     name = "rex_fingers",
     title = "Fingers: Copy by Hint",
@@ -584,9 +759,11 @@ function M.setup(user)
       if scope == "window" and not in_pane_keys then
         error("Fingers: window scope needs overlay = \"pane\" or window_key", 0)
       end
-      -- Before anything looks up the pane's process, in either overlay:
-      -- the float would run the binary path on the host.
-      if remote_host(ctx.session_id) then error(not_on_hosts, 0) end
+      -- A pane on a Rex host: one guarded run per session.
+      local host = remote_host(ctx.session_id)
+      if host and (opts.overlay == "pane" or scope == "window") then
+        return host_run(ctx, args, scope, host)
+      end
       -- The key toggles: with hints already up in the pane, it puts the
       -- pane back.
       local active = state[ctx.block_id]
@@ -625,6 +802,11 @@ function M.setup(user)
           rex.log("warn", "Fingers: follow_scroll: " .. tostring(result))
         end
         return start(ctx, args, scope)
+      end
+      -- The float runs the program on the session's machine, where the
+      -- binary path set here may not exist.
+      if remote_host(ctx.session_id) then
+        error("Fingers: overlay = \"float\" does not reach panes on a Rex host; use overlay = \"pane\"", 0)
       end
       local window_id, rect = locate(ctx.session_id, ctx.block_id)
       local layer, err = rex.session.new_layer{
@@ -682,6 +864,8 @@ function M.setup(user)
       r, err = exec(argv, "--typed", run.typed, "--key", key, "--modifier", mod)
     end
     if not r then error(err, 0) end
+    -- A remote pane's repaint, or its restore and copy, reach it now.
+    if run.writers then forward(run) end
     if not r.done then
       run.typed = r.typed or ""
       return
@@ -713,6 +897,207 @@ function M.setup(user)
       if state[ctx.block_id] == run then pcall(finish, ctx.block_id, run, true) end
     end
     return true
+  end
+
+  -- A run on a pane of a Rex host. The app sends a host tab's plain keys
+  -- to the host's server, where this plugin binds nothing. So a floating
+  -- pane on the host, the reader, takes the focus and prints each key it
+  -- is sent as two hex digits. The action stays alive, reads that pane,
+  -- and presses each key as the key functions do on a local pane.
+  --
+  -- Rex stops an action after 30 seconds without running any more of it,
+  -- so nothing here may count on its own cleanup:
+  --   * a run ends by itself host_limit seconds after the trigger;
+  --   * the reader ends itself after reader_lifetime seconds;
+  --   * every trigger first closes the readers and writers it finds.
+  local host_limit, reader_lifetime = 15, 20
+  -- The live run of each session, and when the last one ended.
+  local host_runs, host_ended = {}, {}
+  -- Readers of runs that ended. The app queues a trigger pressed during
+  -- a run and sends it after the run, with the closed reader as its block.
+  local closed_readers = {}
+
+  -- host_scan reads the session once: its view, the layers that hold a
+  -- reader, and whether block_id is a reader or a writer.
+  local function host_scan(session_id, block_id)
+    local view, err = rex.session.view{ session_id = session_id }
+    if not view then error(err, 0) end
+    local layers, ours = {}, false
+    for _, w in ipairs(view.windows or {}) do
+      for _, layer in ipairs(w.layers or {}) do
+        for _, b in ipairs(layer.blocks or {}) do
+          local mine = b.label == "fingers-reader" or b.label == "fingers-writer"
+          if mine and b.block_id == block_id then ours = true end
+          if b.label == "fingers-reader" and layer.kind ~= "tiled" then
+            layers[#layers + 1] = layer.layer_id
+          end
+        end
+      end
+    end
+    return view, layers, ours
+  end
+
+  -- rect_in finds a block's window and rectangle in a view already read.
+  local function rect_in(view, block_id)
+    for _, w in ipairs(view.windows or {}) do
+      for _, layer in ipairs(w.layers or {}) do
+        local r = rect_of(layer.layout, block_id)
+        if r then
+          if layer.kind ~= "tiled" and layer.bounds then
+            local b = layer.bounds
+            r = { b[1] + r[1] * b[3], b[2] + r[2] * b[4], r[3] * b[3], r[4] * b[4] }
+          end
+          return w.window_id, r
+        end
+      end
+    end
+  end
+
+  -- reader_command asks the program for the reader's argv and the mark
+  -- it prints first, once. The reader ends itself after reader_lifetime
+  -- seconds, so one left behind does not keep the focus for good.
+  local reader
+  local function reader_command()
+    if not reader then
+      local r, err = exec({ binary(opts), "reader", "--lifetime", tostring(reader_lifetime) })
+      if not r then error(err, 0) end
+      reader = r
+    end
+    return reader
+  end
+
+  -- open_reader puts the reader at the pane's top right corner, a
+  -- thousandth of the window in size: Rex refuses a float of no size or
+  -- outside the window, and a minimized one loses the focus.
+  local function open_reader(session_id, window_id, rect)
+    local w, h = 0.001, 0.001
+    local x = math.max(0, math.min(rect[1] + rect[3] - w, 1 - w))
+    local y = math.max(0, math.min(rect[2], 1 - h))
+    local layer, err = rex.session.new_layer{
+      session_id = session_id,
+      window_id = window_id,
+      bounds = { x, y, w, h },
+      focus = true,
+      layout = rex.layout.block{
+        flavor = terminal .. ".shell",
+        label = "fingers-reader",
+        options = {
+          shell = "none",
+          command = reader_command().command,
+          exit = { on_completion = true },
+        },
+      },
+    }
+    if not layer then error(err, 0) end
+    return layer
+  end
+
+  -- read_keys presses each key the reader shows, until the run ends, a
+  -- second trigger cancels it, or the limit passes.
+  local function read_keys(rec, run, pane)
+    local sid = rec.session_id
+    local target = { session_id = sid, block_id = pane }
+    local seen = 0
+    while state[pane] == run and not rec.cancel and os.time() < rec.deadline do
+      local r = rex.block.call(terminal, "format",
+        { session_id = sid, block_id = rec.reader, format = "text", unwrap = true, trim = true })
+      -- The reader is gone: it ended itself, or somebody closed it.
+      if not r then return end
+      local hex = ((r.content or ""):match(reader.mark .. "(.*)") or ""):gsub("%s", "")
+      local n = 0
+      for pair in hex:gmatch("%x%x") do
+        n = n + 1
+        if n > seen then
+          seen = n
+          local b = tonumber(pair, 16)
+          if b == 27 or b == 3 or b == 32 or b == 113 then
+            return
+          elseif b >= 97 and b <= 122 then
+            press(target, string.char(b), "main")
+          elseif b >= 65 and b <= 90 then
+            press(target, string.char(b + 32), "shift")
+          elseif b >= 1 and b <= 26 and b ~= 9 and b ~= 10 and b ~= 13 then
+            press(target, string.char(b + 96), "ctrl")
+          end
+          if state[pane] ~= run or rec.cancel or os.time() >= rec.deadline then return end
+        end
+      end
+      rex.exec({ "sleep", "0.05" }, { timeout = 1 })
+    end
+  end
+
+  host_run = function(ctx, args, scope, host)
+    local started = os.time()
+    local sid, pane = ctx.session_id, ctx.block_id
+    -- Rex runs one action of this config at a time: a trigger pressed
+    -- during a run waits until the run has ended, and arrives then. In
+    -- the app it carries the closed reader as its block. It starts
+    -- nothing, or ten fast presses would give ten runs.
+    if closed_readers[pane] or host_ended[sid] == started then return { ignored = 1 } end
+    -- A binary without --remote would fail at the first draw, with a
+    -- usage message.
+    if program_protocol < 4 then
+      error("Fingers: rex-fingers is older than the plugin and cannot reach panes on a Rex host; build it again", 0)
+    end
+    -- Claim the session before the first call that waits.
+    -- A record still here is of a run Rex stopped: past 30 seconds, or
+    -- when the app went away. Its panes still show hints; draw --begin
+    -- starts again from the state the program kept. Its reader may hold
+    -- the focus, so the trigger arrives on the reader: the run is then
+    -- for the pane the dead run was on.
+    local dead = host_runs[sid]
+    local rec = { session_id = sid, started = started, deadline = started + host_limit }
+    host_runs[sid] = rec
+    if dead then
+      dead.cancel = true
+      for _, id in ipairs((dead.run and dead.run.blocks) or {}) do state[id] = nil end
+      if dead.reader == pane and dead.pane then
+        pane = dead.pane
+        ctx = { session_id = sid, block_id = pane, origin = ctx.origin }
+      end
+    end
+    rec.pane = pane
+
+    local run
+    local ok, result = pcall(function()
+      -- Leftovers of a run that died: readers first, as one may hold the
+      -- focus.
+      local view, layers, ours = host_scan(sid, pane)
+      for _, id in ipairs(layers) do
+        pcall(rex.session.close_layer, { session_id = sid, layer_id = id })
+      end
+      -- Never hint a reader or a writer.
+      if ours then
+        close_leftover_writers(sid)
+        return { closed = #layers }
+      end
+      local window_id, rect = rect_in(view, pane)
+      if not window_id then return { ignored = 1 } end
+      -- The reader opens before the hints are drawn, so a key typed early
+      -- waits in it and does not reach the pane's program.
+      local layer = open_reader(sid, window_id, rect)
+      rec.layer, rec.reader = layer.layer_id, layer.block_ids[1]
+      close_leftover_writers(sid)
+      writer_deadline = rec.deadline - 3
+      local drawn = start(ctx, args, scope, host)
+      run = state[pane]
+      rec.run = run
+      if run and (drawn.hints or 0) > 0 then read_keys(rec, run, pane) end
+      return drawn
+    end)
+
+    -- The end of every run, also after an error. Each step is on its own,
+    -- so one that fails does not skip the next.
+    if run and state[pane] == run then pcall(finish, pane, run, true) end
+    if rec.layer then
+      closed_readers[rec.reader] = true
+      pcall(rex.session.close_layer, { session_id = sid, layer_id = rec.layer })
+      pcall(rex.session.focus_block, { session_id = sid, block_id = pane })
+    end
+    if host_runs[sid] == rec then host_runs[sid] = nil end
+    host_ended[sid] = os.time()
+    if not ok then error(result, 0) end
+    return result
   end
 
   -- cancel puts the pane back and takes the key.

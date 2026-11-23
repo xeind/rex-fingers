@@ -154,10 +154,14 @@ option.
   the pane, but hides its top two rows.
 - No multi-select and no jump mode: Rex cannot move a pane's cursor from
   outside.
-- No hints on a pane of a Rex host yet: the key says so and stops
-  ([issue #1](https://github.com/xeind/rex-fingers/issues/1)). A pane
-  running `ssh` works. A second Rex server on the same machine counts as
-  a host.
+- On a pane of a Rex host, every step is a round trip to the host. At
+  280 ms a trip, the hints show after about 3 s and a pick takes about
+  1.3 s. The hints close by themselves after 15 s. While they are up,
+  other keys this plugin binds wait, in every pane, and may be lost; a
+  second press of the key does nothing, Escape closes. `overlay =
+  "float"` and `follow_scroll` do not reach a host's pane, and `:open:`
+  and `:reveal:` copy a path. Nothing is installed on the host; it needs
+  `sh`, `stty`, `ps`, `cat`, and `hexdump`.
 - On a pane running `ssh`, `mosh`, or `et`, the paths on screen are the
   other machine's: `:open:` and `:reveal:` copy a path instead. URLs
   open as usual.

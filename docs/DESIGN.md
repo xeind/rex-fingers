@@ -162,19 +162,76 @@ the host's. `ps -p` here finds nothing, or a local process with the same
 number, whose terminal the program would paint (issue #1). REX-FACTS.md
 has the measurements.
 
-So the action refuses such a pane first, before it looks up a process,
-in either overlay: `remote_host` compares `rex.call("server.status")
-.host_id` with this machine's, read from the `host-id` file Rex keeps
+So the action tells such a pane apart first, before it looks up a
+process: `remote_host` compares `rex.call("server.status").host_id` with
+this machine's, read from the `host-id` file Rex keeps
 (`~/Library/Application Support/rex` on a Mac, `$XDG_STATE_HOME/rex` on
 Linux). Without that file, or when the call fails, the pane counts as
 local, as before. The answer is kept per session. A second server on the
 same machine, with its own state directory, has its own ID and counts as
-a host.
+a host; `scripts/test_host_pane.sh` uses that. `overlay = "float"`
+raises an error on a host's pane, since the float would run this
+machine's binary path on the host.
 
-Drawing on a host pane works through a hidden block on the host that
-copies frames to the pane's tty. Picking does not: the hint letters are
-function bindings, and the app sends a host tab's keys to the host's
-server, where this plugin binds nothing.
+Nothing is installed on the host. A run there, `host_run` in `init.lua`,
+has three parts.
+
+**Drawing.** The program runs here with `--remote`: `--tty` names a local
+file, and every write is appended to it. `draw` replies with the argv of
+a writer, `inpane.WriterCommand`: `sh` finds the tty of the pane's
+shell, sets its own terminal raw, prints a marker, and runs `cat` into
+that tty. The plugin starts it as a hidden block on the host
+(`session.new_block`, label `fingers-writer`), waits for the marker, and
+after every program call sends the file's bytes to the writer with the
+terminal's `write` method (`forward`). The frame goes through `write`
+and not argv, which Linux limits to 128 KiB. A remote pane gets no flash:
+the flash and the restore would arrive in one write.
+
+**Keys.** The hint letters are function bindings on this machine's
+server, and the app sends a host tab's keys to the host's server. So a
+floating pane on the host, the reader (label `fingers-reader`), takes
+the focus and runs `stty raw -echo; hexdump`, which prints each key as
+two hex digits. Its argv is `inpane.ReaderCommand`, which the plugin
+reads once from `rex-fingers reader`. The action stays alive: it reads the reader's screen,
+and presses each new byte as the key functions do: a letter, a capital
+as Shift, a control byte as Ctrl. Escape, `q`, Space, and Ctrl+C end the
+run. The reader is 0.001 of the window each way, at the pane's top
+right corner; Rex refuses a float of no size or outside the window, and
+a minimized one loses the focus. It opens before the hints are drawn, so
+a key typed early waits in it and does not reach the pane's program.
+Window scope leaves the reader out of the panes it hints.
+
+**Guards.** Rex stops an action after 30 seconds, on a config reload,
+and when the caller goes away, and runs no more of its Lua, so no
+cleanup of the action's own can be counted on:
+
+- A run ends by itself 15 seconds after the trigger (`host_limit`), and
+  the wait for the writer stops 3 seconds before that. The end of a run
+  restores the pane, closes the reader, and focuses the pane, each step
+  under `pcall`, also after an error.
+- The reader ends itself after 20 seconds (`reader_life`), by a `kill`
+  in its own command, and the focus returns to the pane.
+- Every trigger first closes the readers and writers it finds in the
+  session. A trigger whose block is a reader or a writer draws nothing
+  there. When the record of the dead run survived, it runs on that run's
+  pane; after a reload it only closes. The hints a dead run painted stay
+  until the next trigger, where `draw --begin` starts from the run file.
+- Rex runs one action of a config at a time, so a trigger pressed during
+  a run arrives when the run has ended, in the app with the closed
+  reader as its block. It starts nothing: `closed_readers` knows the
+  block, and a trigger in the same second as the end of a run is
+  dropped. So the key cannot cancel a run on a host as it does locally.
+
+Three costs remain. Every Rex call is a round trip, about 12 before the
+hints show and 5 for a pick. While the action is alive, the config's Lua
+is held: a key bound to a function waits, in every pane, and is lost
+when the wait passes 5 seconds. And a call to the host that hangs has no
+timeout; only Rex's 30 seconds end it. REX-FACTS.md has the
+measurements.
+
+`follow_scroll` is off on a host's pane: its draw runs in the
+background, with no writer. `:open:` and `:reveal:` copy a path, as
+below.
 
 ## Paths on another machine
 
@@ -185,7 +242,8 @@ nearest folder, and `pwd` is the local shell's, not the remote one's. So
 `press` turns `:open:` and `:reveal:` on a path into a copy, which every
 pick does first anyway, and replies `remote_path`; the plugin logs it. A
 URL opens as usual. The mark is `--remote-paths`, or `remote_paths=true`
-in a `--pane` spec, sent only to a binary of protocol 3 or later. tmux,
+in a `--pane` spec, sent only to a binary of protocol 3 or later.
+`--remote` implies it. tmux,
 `docker exec`, and other programs are not matched by name.
 
 ## Plugin and program versions

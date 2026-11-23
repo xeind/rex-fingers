@@ -9,6 +9,8 @@
 | `sh scripts/test_in_pane.sh` | a Rex server, `bin/rex-fingers`, `jq`, `pbcopy`; the plugin loaded in the running config for the `keys` case | opens sessions named `fingers-test`; **overwrites the clipboard** and does not put it back |
 | `sh scripts/test_resources.sh` | the same, and `perl`; about 3 minutes | opens `fingers-test` sessions; saves the clipboard and puts it back as text, so a copied image is lost. It fails if hints are up in the app, and deletes `rex-fingers-*` temp files after a failed case. |
 
+| `sh scripts/test_host_pane.sh` | `rex`, `bin/rex-fingers`, `jq`, `perl`; about 3 minutes | starts a second Rex server under `/tmp` and stops it; opens sessions only there; the copy goes to a file, so the clipboard is not touched |
+
 Both live scripts take a filter: `sh scripts/test_in_pane.sh output` runs
 the cases whose name contains "output". Build first: `go build -o
 bin/rex-fingers .`.
@@ -37,6 +39,22 @@ In a session no app renders, the overlay stays 80x24 and the capture wraps
 at column 80. That is a test artifact. Only a real key press in the app
 sizes the overlay, so layout questions need the user's eyes or a
 screenshot.
+
+## A pane on a Rex host
+
+`scripts/test_host_pane.sh` needs no host. A second server on this
+machine has its own host ID, so the plugin takes its panes for a host's,
+and the script's config adds 280 ms to every Rex call. It types into the
+reader with the terminal's `write` method, as the app's keys arrive, and
+checks after every case that no reader or writer is left, the focus is
+on the pane, and the pane's VT is as before. It takes a filter: `sh
+scripts/test_host_pane.sh killed`.
+
+It cannot show what the app does: whether the reader is visible, where
+the app's own focus is, and the real round trip. For those, press the
+key in the app on a host's tab. To see what a run holds up meanwhile,
+send a bound key to a local pane once a second with `client.key` (see
+"Press a key") and time each call.
 
 ## Draw in a pane by hand
 

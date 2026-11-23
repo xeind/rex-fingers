@@ -23,6 +23,7 @@ build takes part; the app bundle on disk reported build 2033.
 | `sh scripts/test_resources.sh` | passed 17, failed 0 |
 | The float loop of [TESTING.md](TESTING.md), on a server started with `overlay = "float"`, 2026-11-18 | the float opened, `a` copied `/tmp/a`, the float closed |
 | `scripts/smoke_test.sh` in CI, Ubuntu and macOS, 2026-11-18 | passed |
+| `sh scripts/test_host_pane.sh`, nushell 0.116.1, 2026-11-24 | passed 65, failed 0 |
 
 Cases that fail now and then, each on "pane text unchanged" unless said:
 
@@ -70,8 +71,8 @@ added as `ssh://cordovan`, reached over Tailscale.
 **A key bound to an action works in a host's tab; a key bound to a
 function does not.** With the plugin only in the Mac's config, alt+f in a
 session on the host ran `rex_fingers`: its `rex.exec` ran here, and
-`rex.block.call` read the host's pane. Before the check it failed with
-`ps -p 926039: exit status 1`, the pid of the host's shell. The hint
+`rex.block.call` read the host's pane. Before the host check it failed
+with `ps -p 926039: exit status 1`, the pid of the host's shell. The hint
 letters, bound with `rex.bind(key, fn)`, reached the shell: hints drawn
 through a hidden block on the host, then `s` typed `s`. Client scripts
 run on the server they are loaded on (`client.set_script`), and a key
@@ -89,6 +90,67 @@ action, `rex.sleep` is nil and `rex.call`, `rex.exec`, `os.clock`, and
 **`rex.server(LABEL)` offers `block`, `call`, and `session`, no `exec`.**
 A script cannot start a program on a host directly; `session.new_block`
 with `options = { shell = "none", command = argv }` starts a hidden one.
+A program that fails at once leaves its block open, so the plugin closes
+the writer itself.
+
+**The terminal's `write` method reaches a program in raw mode
+unchanged.** A writer running `stty raw -echo; cat > TTY` copied ten
+frames in order, and a 200 KB frame in one call. A process argument over
+128 KiB fails on Linux with `argument list too long`. Used by `forward`
+in `init.lua`. Tested 2026-11-22.
+
+**A pane's `child` on a Mac is `/usr/bin/login`**, whose tty is the
+pane's; on Linux it is the shell. The writer waits for its own marker,
+not for a process name.
+
+The facts below were tested 2026-11-23: CLI and servers
+`0.1.0-preview.22`, the plugin in a second server's config with 280 ms
+added to every Rex call, and from the app on a pane of the Ubuntu host;
+the app's build was not recorded. `scripts/test_host_pane.sh` repeats the server part.
+
+**Rex stops an action at 30 seconds and runs no more of its Lua.** The
+caller gets `context deadline exceeded`. The same happens on a config
+reload (`context canceled`) and when the caller goes away, as with `rex
+do --timeout 5s`. A `pcall` around the work does not run. The reader,
+the writer, the painted hints, and the Lua record of the run stay. Used
+by the guards of `host_run`.
+
+**Rex runs one action of a config at a time.** Ten `rex do rex_fingers`
+at once, each on its own connection, ran one after another. In the app,
+with a run stopped at 30 s, three more `client.action` calls for
+`rex_fingers` failed one by one in the two seconds after it, each with
+the block of the stopped one, by then closed (server log, 2026-11-23
+21:01).
+
+**While an action is alive, a key bound to a function waits, and is lost
+after 5 seconds.** `client.key` for a bound key, to a pane of another
+session, returned `dispatching client key to the configuration file:
+context deadline exceeded` when the run ended 12 s later, and the key
+was not typed. An unbound key and `rex send` were not delayed. In the
+app, with a host run alive for 15 s, a bound key sent to a local pane
+failed after 15.7 s; during runs of 4.5 s it arrived 4.2 to 4.7 s late.
+The Rex docs say the server keeps handling keys while an action waits
+for `rex.exec`; it did not.
+
+**A float must lie inside the window with a positive size.** Bounds
+outside it or of size zero are refused, and a minimized float loses the
+focus. One of 0.001 by 0.001 keeps the focus and reads keys. A block
+with `exit = { on_completion = true }` closes its float when its program
+ends, and the focus returns to the pane under it. Used by `open_reader`.
+
+**A run on the host, at 280 ms a call:** the reader was up 0.8 s after
+the trigger, the hints showed at 3.0 s, and the pane was back 1.3 s
+after the key. An idle run ended at 16.4 s.
+
+**Once, the first key after the app reconnected was typed into the
+shell**, with the hints up: the run lasted its 15 s. Seven seconds
+before, the server log has `websocket control ended unexpectedly`. The
+next four runs took 4 to 7 s, and the user saw them pick. Cause not
+found.
+
+**OSC 52 written into a host pane's tty** reached the host's server
+(`clipboard_read` returned it), but not the Mac's clipboard, with the
+pane not focused. Copy runs `pbcopy` here. Tested 2026-11-22.
 
 ## The clipboard
 

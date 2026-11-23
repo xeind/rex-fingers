@@ -83,17 +83,17 @@ each wish to its option. For each change:
 | Path | Holds |
 | --- | --- |
 | `main.go` | package `main`: one call to `cli.Main`. It stays at the root so that `go install` of the module path builds the program |
-| `internal/cli/cli.go` | CLI: `show`, `patterns`, `layouts`, `version`, `protocol`; action dispatch |
-| `internal/cli/pane.go` | CLI: `draw`, `press`, `restore` for `overlay = "pane"`, one pane or several `--pane` specs; each prints one JSON object; `runState` and `recover` for a run left without restore; `locate` and `findOffset` for the page a scrolled pane shows; `--remote-paths` for a pane running ssh |
+| `internal/cli/cli.go` | CLI: `show`, `patterns`, `layouts`, `version`, `protocol`, `reader`; action dispatch |
+| `internal/cli/pane.go` | CLI: `draw`, `press`, `restore` for `overlay = "pane"`, one pane or several `--pane` specs; each prints one JSON object; `runState` and `recover` for a run left without restore; `locate` and `findOffset` for the page a scrolled pane shows; `--remote-paths` for a pane running ssh; `--remote` for a pane on a Rex host, written to a file |
 | `internal/cli/target.go` | `resolveTarget`: a match to a URL, a folder, a file, or the nearest folder of a missing path; `openTarget` for `:open:` and `:reveal:`; `runOpener`, which a test replaces |
 | `internal/cli/await.go` | the background wait of `draw --await-views`, for `follow_scroll` |
-| `internal/inpane` | `Begin` and `Restore` sequences, `BeginAlt` and `RestoreAlt` for a scrolled pane, `TTY(pid)` to find the pane's tty |
+| `internal/inpane` | `Begin` and `Restore` sequences, `BeginAlt` and `RestoreAlt` for a scrolled pane, `TTY(pid)` to find the pane's tty, `WriterCommand` and `ReaderCommand` for a pane on a Rex host |
 | `internal/screen` | VT dump to lines of cells; `Parse`, `Line.Column`, `Line.CellAt` |
 | `internal/patterns` | `Builtin` map, `Default` (all but `digit`), `Weight` per pattern for hint order, `Compile`, `Set.Find` with leftmost-longest overlap rule |
 | `internal/hints` | `Generate` prefix-free hints; `Layouts` and `Alphabet` |
 | `internal/ui` | `Overlay`: raw mode, `draw`, key handling, modifiers |
 | `internal/rexcli` | `Pane.Size`, `Capture`, `Write`, `Pwd`, `Focus` through the `rex` CLI |
-| `lua/rex-fingers/init.lua` | `setup(opts)`, the action, rect lookup, capture |
+| `lua/rex-fingers/init.lua` | `setup(opts)`, the action, rect lookup, capture; `host_run` and the writer for a pane on a Rex host |
 | `assets/` | the icon and the logos; `assets/README.md` lists them |
 
 ## Commands
@@ -103,6 +103,7 @@ go test ./...                       # unit tests: screen, patterns, hints, CLI, 
 sh scripts/smoke_test.sh            # gofmt, vet, build, -race, 10 s fuzz; no Rex needed
 sh scripts/test_in_pane.sh          # live cases; opens Rex sessions, overwrites the clipboard
 sh scripts/test_resources.sh        # leaks, memory, 2 to 12 panes; about 3 minutes; fails if hints are up in the app
+sh scripts/test_host_pane.sh        # a pane of a Rex host, on a second server it starts and stops; about 3 minutes
 go vet ./... && gofmt -l .
 go build -o bin/rex-fingers .       # bin/ is gitignored
 rex config check && rex config reload
@@ -116,7 +117,8 @@ Read the one the task needs:
 
 - `docs/DESIGN.md`: before you change how hints are drawn, picked, or
   restored. The float, the pane overlay and its keys, the run file, a
-  pane that writes during a run, window scope, `follow_scroll`.
+  pane that writes during a run, window scope, `follow_scroll`, a pane
+  on a Rex host.
 - `docs/REX-FACTS.md`: before you rely on a Rex behavior, and when a
   result surprises you. What Rex does and lacks, with the build and date
   of each test.
