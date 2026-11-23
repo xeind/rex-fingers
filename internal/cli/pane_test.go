@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -164,10 +165,81 @@ func TestParsePaneSpec(t *testing.T) {
 	if err != nil || p.tty != "/dev/ttys003" || !p.cursor || !p.wrap {
 		t.Fatalf("defaults: %+v, %v", p, err)
 	}
-	for _, bad := range []string{"rows", "pid=x,vt=a,rows=1", "size=3,vt=a,rows=1"} {
+	p, err = parsePaneSpec("pid=7,vt=/tmp/y.vt,rows=10,remote_paths=true")
+	if err != nil || !p.remotePaths {
+		t.Fatalf("remote_paths: %+v, %v", p, err)
+	}
+	for _, bad := range []string{"rows", "pid=x,vt=a,rows=1", "size=3,vt=a,rows=1", "remote_paths=maybe,vt=a,rows=1"} {
 		if _, err := parsePaneSpec(bad); err == nil {
 			t.Errorf("parsePaneSpec(%q) accepted", bad)
 		}
+	}
+}
+
+// runPane runs an in-pane subcommand and returns the JSON it printed.
+func runPane(t *testing.T, name string, args ...string) map[string]any {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	os.Stdout = w
+	runErr := paneCommand(name, args)
+	os.Stdout = stdout
+	w.Close()
+	if runErr != nil {
+		t.Fatalf("%s: %v", name, runErr)
+	}
+	var got map[string]any
+	if err := json.NewDecoder(r).Decode(&got); err != nil {
+		t.Fatalf("%s: reading the reply: %v", name, err)
+	}
+	return got
+}
+
+// On a pane whose paths are on another machine, as in ssh, :reveal: on a
+// path copies it and opens nothing; on a URL it opens the URL. A local
+// pane opens the path as before.
+func TestRemotePathIsCopiedNotOpened(t *testing.T) {
+	var opened []string
+	saved := runOpener
+	runOpener = func(args ...string) error { opened = args; return nil }
+	t.Cleanup(func() { runOpener = saved })
+
+	pick := func(screenText string, extra ...string) (map[string]any, string) {
+		t.Setenv("TMPDIR", t.TempDir())
+		dir := t.TempDir()
+		vt := filepath.Join(dir, "pane.vt")
+		if err := os.WriteFile(vt, []byte(screenText), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// A plain file stands in for the pane's tty.
+		tty := filepath.Join(dir, "tty")
+		if err := os.WriteFile(tty, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		copied := filepath.Join(dir, "copied")
+		common := append([]string{"--tty", tty, "--vt-file", vt, "--rows", "1", "--cols", "40",
+			"--ctrl-action", ":reveal:", "--copy-command", "cat > " + copied}, extra...)
+		runPane(t, "draw", append([]string{"--begin"}, common...)...)
+		opened = nil
+		got := runPane(t, "press", append([]string{"--key", "a", "--modifier", "ctrl"}, common...)...)
+		text, _ := os.ReadFile(copied)
+		return got, string(text)
+	}
+
+	got, copied := pick("see /etc/hostname", "--remote-paths")
+	if opened != nil || got["remote_path"] != true || copied != "/etc/hostname" {
+		t.Fatalf("remote path: opened %v, reply %v, copied %q", opened, got, copied)
+	}
+	got, _ = pick("see https://example.com/a", "--remote-paths")
+	if len(opened) == 0 || opened[0] != "https://example.com/a" || got["remote_path"] != nil {
+		t.Fatalf("remote URL: opened %v, reply %v", opened, got)
+	}
+	pick("see /etc/hostname")
+	if len(opened) == 0 {
+		t.Fatal("local pane: the path was not opened")
 	}
 }
 

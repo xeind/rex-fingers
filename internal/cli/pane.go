@@ -42,9 +42,12 @@ import (
 // paneSpec is one pane of a run: how to reach its tty, its capture, its
 // size, and the terminal modes to put back.
 type paneSpec struct {
-	tty    string
-	pid    int
-	vtFile string
+	tty string
+	pid int
+	// remotePaths marks a pane whose paths are on another machine, such as
+	// one running ssh, though its tty is here.
+	remotePaths bool
+	vtFile      string
 	// textFile is the same screen as unwrapped text; it says which rows
 	// the terminal wrapped. Optional.
 	textFile string
@@ -483,6 +486,8 @@ func parsePaneSpec(s string) (paneSpec, error) {
 			p.cursor, err = strconv.ParseBool(value)
 		case "wrap":
 			p.wrap, err = strconv.ParseBool(value)
+		case "remote_paths":
+			p.remotePaths, err = strconv.ParseBool(value)
 		default:
 			return p, fmt.Errorf("--pane: unknown key %q", key)
 		}
@@ -584,6 +589,7 @@ func paneCommand(name string, args []string) error {
 	fs.IntVar(&r.single.cols, "cols", 0, "")
 	fs.BoolVar(&r.single.cursor, "cursor-visible", true, "")
 	fs.BoolVar(&r.single.wrap, "wraparound", true, "")
+	fs.BoolVar(&r.single.remotePaths, "remote-paths", false, "")
 	fs.Usage = usage
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -876,7 +882,15 @@ func (r paneRun) press(specs []paneSpec) error {
 	}
 	defer osc.Close()
 	setRexTarget(*r.session, *r.block)
-	if err := runAction(r.opts.action(sel.Modifier), sel, *r.opts.copyCmd, osc, paste, dir); err != nil {
+	action := r.opts.action(sel.Modifier)
+	// A path on another machine would open this machine's file of that
+	// name, or its nearest folder. Every pick is copied first, so the path
+	// is copied and nothing opens. A URL opens as usual.
+	if specs[pane].remotePaths && (action == actionOpen || action == actionReveal) && !namesURL(sel.Target.Text) {
+		action = actionCopy
+		result["remote_path"] = true
+	}
+	if err := runAction(action, sel, *r.opts.copyCmd, osc, paste, dir); err != nil {
 		result["error"] = err.Error()
 	}
 	return reply(result)

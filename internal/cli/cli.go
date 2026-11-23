@@ -55,7 +55,8 @@ func version() string {
 //
 //	1  everything up to v0.4.2, which has no protocol command
 //	2  the protocol command
-const protocol = 2
+//	3  --remote-paths, and remote_path in press's reply
+const protocol = 3
 
 // The special action values, as in tmux-fingers, and :reveal:, which is
 // not in tmux-fingers.
@@ -137,6 +138,9 @@ flags of show:
 flags of draw, press, and restore, which draw in the pane's own tty and
 also take the flags of show that pick and style the hints:
   --tty PATH              the pane's tty; or --pid N of a process on it
+  --remote-paths          (press) the pane's paths are on another machine,
+                          as in ssh: :open: and :reveal: copy a path and
+                          open nothing
   --cols N                the pane's column count
   --typed LETTERS         hint letters typed so far
   --begin                 (draw) save the cursor before the first draw, and

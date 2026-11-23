@@ -12,6 +12,15 @@ import (
 	"time"
 )
 
+// namesURL reports whether text is a URL, which means the same on any
+// machine, unlike a path. file:// is a path.
+func namesURL(text string) bool {
+	if strings.HasPrefix(text, "file://") {
+		return false
+	}
+	return urlScheme.MatchString(text) || strings.HasPrefix(text, "git@")
+}
+
 // targetKind is what a picked match names, for :open: and :reveal:.
 type targetKind int
 

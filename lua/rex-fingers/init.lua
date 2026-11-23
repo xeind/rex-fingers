@@ -19,7 +19,7 @@ local terminal = "com.superlogical.terminal"
 -- The protocol this plugin needs from the program: `rex-fingers protocol`
 -- prints the one the binary speaks. A binary built before the plugin was
 -- updated rejects the flags it does not know, so setup warns.
-local protocol = 2
+local protocol = 3
 -- The protocol the configured binary reported, read by setup. A flag it
 -- does not know is not sent; without a check it is taken to be current.
 local program_protocol = protocol
@@ -309,6 +309,15 @@ end
 
 local not_on_hosts = "Fingers: hints on panes of a Rex host are not supported yet; see https://github.com/xeind/rex-fingers/issues/1"
 
+-- Programs that show another machine's shell in a local pane. Their
+-- pane's tty is here, so hints draw as usual, but the paths on screen are
+-- the other machine's: the program copies them instead of opening them.
+-- A binary before protocol 3 does not know the flag, so it is not sent.
+local remote_shells = { ssh = true, ["mosh-client"] = true, et = true }
+local function shows_remote_paths(fg)
+  return remote_shells[fg.name] and program_protocol >= 3
+end
+
 -- finish forgets the run. With restore, it also repaints the pane as it
 -- was.
 local function finish(block_id, run, restore)
@@ -352,6 +361,7 @@ local function start_in_pane(opts, ctx, args)
                  "--cursor-visible=" .. cursor, "--wraparound=" .. wrap,
                  "--cwd", (pwd and pwd.pwd) or "" }
   option_flags(tail, opts, args)
+  if shows_remote_paths(fg) then tail[#tail + 1] = "--remote-paths" end
   local r
   r, err = exec({ binary(opts), "draw" }, "--begin", "--pid", tostring(fg.pid), unpack(tail))
   if not r then
@@ -416,6 +426,7 @@ local function pane_spec(session_id, block_id)
   local spec = string.format("pid=%d,vt=%s,text=%s,rows=%d,cols=%d,cursor=%s,wrap=%s",
     fg.pid, path, text, size.rows, size.columns,
     mode_set(modes, 25) and "true" or "false", mode_set(modes, 7) and "true" or "false")
+  if shows_remote_paths(fg) then spec = spec .. ",remote_paths=true" end
   return spec, path, text
 end
 
@@ -676,6 +687,7 @@ function M.setup(user)
       return
     end
     finish(ctx.block_id, run, false)
+    if r.remote_path then rex.log("info", "Fingers: the path is on another machine; copied it instead") end
     if r.paste then
       local ok, perr = rex.block.call(terminal, "write",
         { session_id = ctx.session_id, block_id = run.origin or ctx.block_id, data = r.paste })

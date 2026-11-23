@@ -176,6 +176,18 @@ copies frames to the pane's tty. Picking does not: the hint letters are
 function bindings, and the app sends a host tab's keys to the host's
 server, where this plugin binds nothing.
 
+## Paths on another machine
+
+A pane whose foreground process is `ssh`, `mosh-client`, or `et` shows
+the other machine's paths, though its tty is here and hints draw as
+usual. Opening one would open this machine's file of that name, or its
+nearest folder, and `pwd` is the local shell's, not the remote one's. So
+`press` turns `:open:` and `:reveal:` on a path into a copy, which every
+pick does first anyway, and replies `remote_path`; the plugin logs it. A
+URL opens as usual. The mark is `--remote-paths`, or `remote_paths=true`
+in a `--pane` spec, sent only to a binary of protocol 3 or later. tmux,
+`docker exec`, and other programs are not matched by name.
+
 ## Plugin and program versions
 
 `rex-fingers protocol` prints the number of the flags and replies the

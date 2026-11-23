@@ -158,6 +158,9 @@ option.
   ([issue #1](https://github.com/xeind/rex-fingers/issues/1)). A pane
   running `ssh` works. A second Rex server on the same machine counts as
   a host.
+- On a pane running `ssh`, `mosh`, or `et`, the paths on screen are the
+  other machine's: `:open:` and `:reveal:` copy a path instead. URLs
+  open as usual.
 - With the plugin in the config of a Rex server on another machine, set
   `copy_command` to reach your clipboard, such as `ssh laptop pbcopy`.
 
