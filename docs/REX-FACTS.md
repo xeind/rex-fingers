@@ -106,7 +106,8 @@ not for a process name.
 The facts below were tested 2026-11-23: CLI and servers
 `0.1.0-preview.22`, the plugin in a second server's config with 280 ms
 added to every Rex call, and from the app on a pane of the Ubuntu host;
-the app's build was not recorded. `scripts/test_host_pane.sh` repeats the server part.
+the app's build was not recorded. `scripts/test_host_pane.sh` repeats
+the server part.
 
 **Rex stops an action at 30 seconds and runs no more of its Lua.** The
 caller gets `context deadline exceeded`. The same happens on a config
@@ -140,7 +141,13 @@ ends, and the focus returns to the pane under it. Used by `open_reader`.
 
 **A run on the host, at 280 ms a call:** the reader was up 0.8 s after
 the trigger, the hints showed at 3.0 s, and the pane was back 1.3 s
-after the key. An idle run ended at 16.4 s.
+after the key. An idle run ended at 16.4 s. That run made 12 calls
+before the hints. With 10, tested 2026-11-24 from a `rex do` script, the
+second run in one Lua state: reader up at 0.6 s, hints at 2.3 s, the
+pane back and the reader closed 1.0 s after the key, the action over
+after 3.8 s. The two calls cut are `pwd`, which a host run does not
+need, and `session.list_blocks`, the search for a leftover writer, made
+only on a session's first run and after a run that died.
 
 **Once, the first key after the app reconnected was typed into the
 shell**, with the hints up: the run lasted its 15 s. Seven seconds

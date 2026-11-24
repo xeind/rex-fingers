@@ -155,8 +155,8 @@ option.
 - No multi-select and no jump mode: Rex cannot move a pane's cursor from
   outside.
 - On a pane of a Rex host, every step is a round trip to the host. At
-  280 ms a trip, the hints show after about 3 s and a pick takes about
-  1.3 s. The hints close by themselves after 15 s. While they are up,
+  280 ms a trip, the hints show after about 2.3 s and a pick takes about
+  1 s. The hints close by themselves after 15 s. While they are up,
   other keys this plugin binds wait, in every pane, and may be lost; a
   second press of the key does nothing, Escape closes. `overlay =
   "float"` and `follow_scroll` do not reach a host's pane, and `:open:`

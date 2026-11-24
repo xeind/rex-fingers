@@ -423,7 +423,8 @@ local function finish(block_id, run, restore)
   end
   if run.writers then
     pcall(forward, run)
-    close_writers(run)
+    -- A host run closes them itself, after it has given the focus back.
+    if not run.keep_writers then close_writers(run) end
   end
   if not ok then error(err, 0) end
 end
@@ -474,7 +475,9 @@ local function start_in_pane(opts, ctx, args, host)
   if not process then error(err, 0) end
   local fg = process.foreground or process.child
   if not fg then error("Fingers: no process in the pane", 0) end
-  local pwd = rex.block.call(terminal, "pwd", target)
+  -- A host's directory is no directory of this machine, where an action
+  -- command runs, so it is not asked for: one round trip less.
+  local pwd = not host and rex.block.call(terminal, "pwd", target)
   local path, text, size = capture(ctx)
   local cursor = mode_set(modes, 25) and "true" or "false"
   local wrap = mode_set(modes, 7) and "true" or "false"
@@ -596,7 +599,7 @@ end
 -- them is scrolled to. The caller queues those copies. It returns the
 -- result and the blocks that take part.
 local function start_panes(opts, ctx, args, blocks, await, host)
-  local pwd = rex.block.call(terminal, "pwd", { session_id = ctx.session_id, block_id = ctx.block_id })
+  local pwd = not host and rex.block.call(terminal, "pwd", { session_id = ctx.session_id, block_id = ctx.block_id })
   local specs, paths, members, remotes = {}, {}, {}, {}
   for _, id in ipairs(blocks) do
     local spec, path, text, file, pid = pane_spec(ctx.session_id, id, host)
@@ -916,6 +919,9 @@ function M.setup(user)
   -- Readers of runs that ended. The app queues a trigger pressed during
   -- a run and sends it after the run, with the closed reader as its block.
   local closed_readers = {}
+  -- Sessions whose leftover writers were looked for since the config
+  -- loaded. A writer is hidden, so finding one costs a round trip.
+  local swept = {}
 
   -- host_scan reads the session once: its view, the layers that hold a
   -- reader, and whether block_id is a reader or a writer.
@@ -1077,23 +1083,30 @@ function M.setup(user)
       -- waits in it and does not reach the pane's program.
       local layer = open_reader(sid, window_id, rect)
       rec.layer, rec.reader = layer.layer_id, layer.block_ids[1]
-      close_leftover_writers(sid)
+      -- A writer is left only by a run that died: one on record here, one
+      -- whose reader was just found, or one from before the config loaded.
+      if dead or #layers > 0 or not swept[sid] then close_leftover_writers(sid) end
+      swept[sid] = true
       writer_deadline = rec.deadline - 3
       local drawn = start(ctx, args, scope, host)
       run = state[pane]
       rec.run = run
+      if run then run.keep_writers = true end
       if run and (drawn.hints or 0) > 0 then read_keys(rec, run, pane) end
       return drawn
     end)
 
     -- The end of every run, also after an error. Each step is on its own,
     -- so one that fails does not skip the next.
+    -- The order is what the user waits for: the pane as it was, then the
+    -- focus, and last the hidden writers.
     if run and state[pane] == run then pcall(finish, pane, run, true) end
     if rec.layer then
       closed_readers[rec.reader] = true
       pcall(rex.session.close_layer, { session_id = sid, layer_id = rec.layer })
       pcall(rex.session.focus_block, { session_id = sid, block_id = pane })
     end
+    if run and run.writers then close_writers(run) end
     if host_runs[sid] == rec then host_runs[sid] = nil end
     host_ended[sid] = os.time()
     if not ok then error(result, 0) end

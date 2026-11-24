@@ -192,7 +192,8 @@ server, and the app sends a host tab's keys to the host's server. So a
 floating pane on the host, the reader (label `fingers-reader`), takes
 the focus and runs `stty raw -echo; hexdump`, which prints each key as
 two hex digits. Its argv is `inpane.ReaderCommand`, which the plugin
-reads once from `rex-fingers reader`. The action stays alive: it reads the reader's screen,
+reads once from `rex-fingers reader`. The action stays alive: it reads
+the reader's screen,
 and presses each new byte as the key functions do: a letter, a capital
 as Shift, a control byte as Ctrl. Escape, `q`, Space, and Ctrl+C end the
 run. The reader is 0.001 of the window each way, at the pane's top
@@ -207,22 +208,26 @@ cleanup of the action's own can be counted on:
 
 - A run ends by itself 15 seconds after the trigger (`host_limit`), and
   the wait for the writer stops 3 seconds before that. The end of a run
-  restores the pane, closes the reader, and focuses the pane, each step
-  under `pcall`, also after an error.
+  restores the pane, closes the reader, focuses the pane, and then
+  closes the writers, each step under `pcall`, also after an error. That
+  order is what the user waits for.
 - The reader ends itself after 20 seconds (`reader_life`), by a `kill`
   in its own command, and the focus returns to the pane.
-- Every trigger first closes the readers and writers it finds in the
-  session. A trigger whose block is a reader or a writer draws nothing
-  there. When the record of the dead run survived, it runs on that run's
-  pane; after a reload it only closes. The hints a dead run painted stay
-  until the next trigger, where `draw --begin` starts from the run file.
+- Every trigger first closes the readers it finds in the session, and
+  the writers too when one can be left: on a session's first run since
+  the config loaded, after a run that died, and when a reader was found.
+  Writers are hidden, so the search for them is a round trip of its own.
+  A trigger whose block is a reader or a writer draws nothing there.
+  When the record of the dead run survived, it runs on that run's pane;
+  after a reload it only closes. The hints a dead run painted stay until
+  the next trigger, where `draw --begin` starts from the run file.
 - Rex runs one action of a config at a time, so a trigger pressed during
   a run arrives when the run has ended, in the app with the closed
   reader as its block. It starts nothing: `closed_readers` knows the
   block, and a trigger in the same second as the end of a run is
   dropped. So the key cannot cancel a run on a host as it does locally.
 
-Three costs remain. Every Rex call is a round trip, about 12 before the
+Three costs remain. Every Rex call is a round trip, about 10 before the
 hints show and 5 for a pick. While the action is alive, the config's Lua
 is held: a key bound to a function waits, in every pane, and is lost
 when the wait passes 5 seconds. And a call to the host that hangs has no
