@@ -1338,7 +1338,9 @@ function M.setup(user)
       table.insert(draw, 5, frames)
       local r, derr = exec(draw, unpack(tail))
       if not r or r.hints == 0 then
-        pcall(agent_send, sid, block, "END\n")
+        -- The agent closes its reader a moment later and ends itself; a
+        -- close of its block now would leave the reader up.
+        agent_ends_itself = pcall(agent_send, sid, block, "END\n")
         if not r then error(derr, 0) end
         return { hints = 0 }
       end

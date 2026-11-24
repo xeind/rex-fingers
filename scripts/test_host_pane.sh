@@ -264,6 +264,20 @@ if begin "window scope" 0.28; then
   clean; unchanged; finish
 fi
 
+if [ "$mode" != false ] && begin "no hints" 0.28; then
+  # A pane with nothing to hint. The reader must outlive the run by a
+  # moment: the app has sent a key to it just after, and a closed block
+  # cost it its connection to the host.
+  T send -s "$S" -b "$B" "clear; seq 3"; T send-key -s "$S" -b "$B" enter; sleep 1
+  vt > "$dir/vt.before"
+  trigger "$B"
+  expect "no hints" "$(jq -r .hints "$dir/trigger.out")" 0
+  sleep 0.2
+  if [ -n "$(reader)" ]; then ok "the reader is still up just after"; else fail "the reader closed with the run"; fi
+  expect "the focus is back on the pane at once" "$(focused)" "$B"
+  clean; unchanged; finish
+fi
+
 if begin "run limit" 0.28; then
   t=$(now); trigger "$B"; took=$(($(now) - t))
   if [ $took -ge 14 ] && [ $took -le 20 ]; then ok "ended by itself after $took s"; else fail "took $took s, want about 16"; fi

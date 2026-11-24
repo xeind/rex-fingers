@@ -537,7 +537,19 @@ end
 local word, _, body = message()
 local run = word == "RUN" and rex.json.decode(body)
 trace("run", word, "reader", reader, "key file", key_file, "pane", origin)
+-- A reader in its float stays for linger_reader seconds after a run has
+-- ended. Rex for Mac snapshot 2107 sent one more key event to the
+-- reader's block right after the key that picked, and any key typed just
+-- after a run with no hints; the block was closed by then, the host
+-- answered 404, and the app lost its connection to the host (2026-11-24).
+-- The focus goes back to the pane at once.
+local linger_reader = 0.8
 if not run then
+  -- No hints: the plugin said END and leaves this block alone.
+  if not hidden then
+    rex.session.focus_block{ session_id = sid, block_id = origin }
+    rex.sleep(linger_reader)
+  end
   leave()
   return
 end
@@ -714,13 +726,8 @@ end
 -- plugin copies at once, and the pane comes back about 1.5 s later, when
 -- the app has loaded it again. The plugin leaves this block to the agent
 -- then.
---
--- A reader in its float stays for linger seconds after the report too.
--- Rex for Mac snapshot 2107 sent one more key event to the reader's block
--- right after the key that picked; the block was closed by then, the
--- host answered 404, and the app lost its connection to the host
--- (2026-11-24). The focus goes back to the pane at once.
-local linger_reader = 0.8
+-- A reader in its float stays for linger_reader seconds after the
+-- report too, as said above.
 local returning = swapped or (not hidden and reader ~= nil)
 if not returning then
   leave()
