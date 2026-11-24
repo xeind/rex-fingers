@@ -135,37 +135,76 @@ local function open_floats(session_id, block_id)
   return {}
 end
 
--- dump writes one format call on a pane, read in blobs if it is large, to
--- a temp file and returns the path. target holds session_id and block_id.
-local function dump(target, format_args)
-  local args = { session_id = target.session_id, block_id = target.block_id, max_bytes = 983040 }
-  for k, v in pairs(format_args) do args[k] = v end
-  local r, err = rex.block.call(terminal, "format", args)
-  if not r then error(err, 0) end
-  local parts, offset = { r.content }, #r.content
-  while r.id and not r.eof do
-    r, err = rex.block.call(terminal, "blob_read", { session_id = target.session_id, block_id = target.block_id, id = r.id, offset = offset })
+-- The most a format or blob_read reply holds. Without max_bytes a
+-- blob_read reply holds 48 KiB, twenty calls where one does.
+local reply_limit = 983040
+
+-- read_blob returns a format result from byte offset to its end.
+local function read_blob(target, id, offset)
+  local parts = {}
+  while true do
+    local r, err = rex.block.call(terminal, "blob_read", { session_id = target.session_id, block_id = target.block_id, id = id, offset = offset, max_bytes = reply_limit })
     if not r then error(err, 0) end
     parts[#parts + 1] = r.data
     offset = offset + #r.data
+    if r.eof or #r.data == 0 then return table.concat(parts) end
   end
+end
+
+-- read_format returns one format call on a pane, read in blobs if it is
+-- large. target holds session_id and block_id.
+--
+-- With tail, it returns only the end of the output. The output holds the
+-- whole scrollback, megabytes on a pane in use, and the program reads the
+-- screen alone, the last rows of it. On a Rex host every call is a round
+-- trip, so the first reply asks for tail.bytes: a short output arrives
+-- whole, in one call, and of a long one only the last tail.bytes are read.
+-- With tail.rows, the VT format, that grows until it holds as many whole
+-- rows. A row of the VT starts with its own SGR reset, so one cut from the
+-- rows above it draws the same; the row the cut falls in is dropped by the
+-- program, which keeps the last rows.
+local function read_format(target, format_args, tail)
+  local args = { session_id = target.session_id, block_id = target.block_id, max_bytes = tail and tail.bytes or reply_limit }
+  for k, v in pairs(format_args) do args[k] = v end
+  local r, err = rex.block.call(terminal, "format", args)
+  if not r then error(err, 0) end
+  if not r.id or r.eof then return r.content end
+  if not tail or not r.total then return r.content .. read_blob(target, r.id, #r.content) end
+  while true do
+    local offset = math.max(0, r.total - tail.bytes)
+    local data = read_blob(target, r.id, offset)
+    local _, breaks = data:gsub("\r\n", "")
+    if offset == 0 or not tail.rows or breaks >= tail.rows then return data end
+    tail.bytes = tail.bytes * 4
+  end
+end
+
+-- dump writes one format call on a pane to a temp file and returns the
+-- path. tail is as in read_format.
+local function dump(target, format_args, tail)
+  local data = read_format(target, format_args, tail)
   local path = os.tmpname()
   local f = assert(io.open(path, "w"))
-  f:write(table.concat(parts))
+  f:write(data)
   f:close()
   return path
 end
 
 -- capture writes the pane's screen to temporary files before the program
--- starts, so the program draws as soon as it starts.
-local function capture(ctx)
+-- starts, so the program draws as soon as it starts. On a pane of a Rex
+-- host it reads only the end of the scrollback, and also returns the tail
+-- that held the screen, for the later captures of the run.
+local function capture(ctx, host)
   local size, err = rex.block.call(terminal, "size", { session_id = ctx.session_id, block_id = ctx.block_id })
   if not size then error(err, 0) end
+  -- Eight bytes a cell holds most screens, colours included.
+  local tail = host and { rows = size.rows, bytes = math.min(reply_limit, math.max(32768, size.rows * size.columns * 8)) }
   -- The VT dump redraws the screen row by row. The unwrapped text says
-  -- which rows the terminal wrapped, so a match can span them.
-  local vt = dump(ctx, { format = "vt" })
-  local text = dump(ctx, { format = "text", unwrap = true, trim = true })
-  return vt, text, size
+  -- which rows the terminal wrapped, so a match can span them. The text
+  -- of the screen is no longer than its VT, so the same bytes hold it.
+  local vt = dump(ctx, { format = "vt" }, tail)
+  local text = dump(ctx, { format = "text", unwrap = true, trim = true }, tail and { bytes = tail.bytes })
+  return vt, text, size, tail
 end
 
 -- currents captures every pane of a run as VT, as it is now, so the
@@ -175,7 +214,7 @@ end
 local function currents(run)
   local paths = {}
   for i, id in ipairs(run.blocks) do
-    paths[i] = dump({ session_id = run.session_id, block_id = id }, { format = "vt" })
+    paths[i] = dump({ session_id = run.session_id, block_id = id }, { format = "vt" }, run.tails and run.tails[id])
   end
   return paths
 end
@@ -478,7 +517,7 @@ local function start_in_pane(opts, ctx, args, host)
   -- A host's directory is no directory of this machine, where an action
   -- command runs, so it is not asked for: one round trip less.
   local pwd = not host and rex.block.call(terminal, "pwd", target)
-  local path, text, size = capture(ctx)
+  local path, text, size, capture_tail = capture(ctx, host)
   local cursor = mode_set(modes, 25) and "true" or "false"
   local wrap = mode_set(modes, 7) and "true" or "false"
   -- Flags that draw, press, and restore all take.
@@ -517,7 +556,8 @@ local function start_in_pane(opts, ctx, args, host)
     return a
   end
   local run = { typed = "", busy = false,
-                session_id = ctx.session_id, origin = ctx.block_id, blocks = { ctx.block_id } }
+                session_id = ctx.session_id, origin = ctx.block_id, blocks = { ctx.block_id },
+                tails = capture_tail and { [ctx.block_id] = capture_tail } }
   if file then
     -- The shell, not the foreground program: it lives as long as the pane.
     local ok, rerr = pcall(remote_run, run, r, ctx.block_id, (process.child or fg).pid, file)
@@ -567,14 +607,15 @@ end
 -- pane_spec captures one pane and returns its --pane value for draw and
 -- the capture's path, or nil when the pane has no process to draw into.
 -- On a remote pane, given host, the spec names the pane's file and is
--- marked remote, and it also returns the file and the pid for the writer.
+-- marked remote, and it also returns the file and the pid for the writer,
+-- and the tail its capture read.
 local function pane_spec(session_id, block_id, host)
   local target = { session_id = session_id, block_id = block_id }
   local process = rex.block.call(terminal, "process", target)
   local fg = process and (process.foreground or process.child)
   if not fg then return nil end
   local modes = rex.block.call(terminal, "modes", target) or {}
-  local path, text, size = capture(target)
+  local path, text, size, tail = capture(target, host)
   local pane = "pid=" .. fg.pid
   local file = host and remote_file(host, block_id)
   if file then
@@ -586,7 +627,7 @@ local function pane_spec(session_id, block_id, host)
   local spec = string.format("%s,vt=%s,text=%s,rows=%d,cols=%d,cursor=%s,wrap=%s",
     pane, path, text, size.rows, size.columns,
     mode_set(modes, 25) and "true" or "false", mode_set(modes, 7) and "true" or "false")
-  return spec, path, text, file, (process.child or fg).pid
+  return spec, path, text, file, (process.child or fg).pid, tail
 end
 
 -- start_panes draws hints into the terminal panes in blocks at once. The
@@ -600,14 +641,15 @@ end
 -- result and the blocks that take part.
 local function start_panes(opts, ctx, args, blocks, await, host)
   local pwd = not host and rex.block.call(terminal, "pwd", { session_id = ctx.session_id, block_id = ctx.block_id })
-  local specs, paths, members, remotes = {}, {}, {}, {}
+  local specs, paths, members, remotes, tails = {}, {}, {}, {}, {}
   for _, id in ipairs(blocks) do
-    local spec, path, text, file, pid = pane_spec(ctx.session_id, id, host)
+    local spec, path, text, file, pid, tail = pane_spec(ctx.session_id, id, host)
     if spec then
       specs[#specs + 1] = spec
       paths[#paths + 1] = path
       paths[#paths + 1] = text
       members[#members + 1] = id
+      tails[id] = tail
       if file then remotes[#remotes + 1] = { block = id, file = file, pid = pid } end
     end
   end
@@ -645,7 +687,8 @@ local function start_panes(opts, ctx, args, blocks, await, host)
     return a
   end
   local run = { argv = argv, typed = "", busy = false,
-                session_id = ctx.session_id, origin = ctx.block_id, blocks = members }
+                session_id = ctx.session_id, origin = ctx.block_id, blocks = members,
+                tails = host and tails or nil }
   for _, m in ipairs(remotes) do
     local ok, rerr = pcall(remote_run, run, r, m.block, m.pid, m.file)
     if not ok then
