@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -23,8 +25,34 @@ type Size struct {
 	Rows    int `json:"rows"`
 }
 
+// binary returns the rex to run. A program the server starts for a
+// config action may have no rex on its PATH: the app puts it there only
+// for its own terminals. REX_BIN_DIR names the server's own; after that
+// come PATH and the places Rex installs it.
+func binary() string {
+	candidates := []string{}
+	if dir := os.Getenv("REX_BIN_DIR"); dir != "" {
+		candidates = append(candidates, filepath.Join(dir, "rex"))
+	}
+	if path, err := exec.LookPath("rex"); err == nil {
+		candidates = append(candidates, path)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(home, "Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"),
+			filepath.Join(home, ".local/bin/rex"))
+	}
+	candidates = append(candidates, "/usr/local/bin/rex", "/usr/bin/rex")
+	for _, c := range candidates {
+		if info, err := os.Stat(c); err == nil && !info.IsDir() {
+			return c
+		}
+	}
+	return "rex"
+}
+
 func run(args ...string) ([]byte, error) {
-	cmd := exec.Command("rex", args...)
+	cmd := exec.Command(binary(), args...)
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
