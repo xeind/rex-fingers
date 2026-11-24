@@ -81,7 +81,8 @@ empty. A build with `GOPATH` set to the plugin folder left a read-only
 `pkg/` folder there; `chmod -R u+w` it, then remove it.
 
 With v0.5.0 the prebuilt program came back, fetched by a script:
-`scripts/install.sh`, run as `curl ... | sh`. A file `curl` fetches
+`scripts/install.sh`, fetched whole with `curl` and then run by `sh`;
+`curl ... | sh` would report success when the fetch failed. A file `curl` fetches
 carries no quarantine attribute, so the program runs, still signed ad
 hoc and not notarized. The script checks the tarball against the
 release's `SHA256SUMS`. `scripts/build_release.sh` builds the tarballs

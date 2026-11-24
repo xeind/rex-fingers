@@ -33,20 +33,29 @@ tmux-fingers user finds every option mapped in
 ## 1. Get the program and the plugin
 
 On a Mac, the install script fetches both next to your config, from one
-release, so they always match:
+release, so they always match. Run it in a Rex pane, where `rex` is on
+the `PATH`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/xeind/rex-fingers/main/scripts/install.sh | sh
+sh -c 'script=$(curl -fsSL https://raw.githubusercontent.com/xeind/rex-fingers/main/scripts/install.sh) && sh -c "$script"'
+```
+
+If it ends with an error, stop there: it has changed nothing. Otherwise
+run:
+
+```sh
 ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version
 ```
 
-Check: the last command prints the release's tag, such as `v0.5.0`. To
+Check: it prints the release's tag, such as `v0.5.0`. To
 update, run the script again. On Linux, or to build the program
 yourself, see [Build from source](../README.md#build-from-source).
 
 ## 2. Load the plugin
 
-Add to `~/.config/rex/init.lua`:
+Add to your Rex config, the file `rex config check` prints after
+`path:`. That is `~/.config/rex/init.lua` unless you set
+`XDG_CONFIG_HOME` or `REX_CONFIG`:
 
 ```lua
 local fingers_dir = os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers"
@@ -106,7 +115,8 @@ Colemak or Dvorak, or want only the home row:
 keyboard_layout = "colemak-homerow",
 ```
 
-`rex-fingers layouts` prints every layout with its letters. For a custom
+`~/.config/rex/plugins/rex-fingers/bin/rex-fingers layouts` prints every
+layout with its letters. For a custom
 set, `alphabet = "..."` wins over the layout.
 
 Check: after reload, the hints use the new letters.

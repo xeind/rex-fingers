@@ -34,19 +34,23 @@ Report which keys you bound: alt+f and alt+shift+f.
 
 ## Install by hand
 
-On a Mac, with Rex installed:
+On a Mac, with Rex installed. Run the commands in a Rex pane, where
+`rex` is on the `PATH`.
 
 1. Fetch the plugin and its program:
 
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/xeind/rex-fingers/main/scripts/install.sh | sh
+   sh -c 'script=$(curl -fsSL https://raw.githubusercontent.com/xeind/rex-fingers/main/scripts/install.sh) && sh -c "$script"'
    ```
 
    It puts both in `~/.config/rex/plugins/rex-fingers`, checks the
-   download against the release's checksums, and prints step 2. It does
-   not touch your Rex config.
+   download against the release's checksums, and prints step 2 with the
+   folder it used. It does not touch your Rex config. If it ends with an
+   error, stop there: it has changed nothing.
 
-2. Add to `~/.config/rex/init.lua`:
+2. Add to your Rex config, the file `rex config check` prints after
+   `path:`. That is `~/.config/rex/init.lua` unless you set
+   `XDG_CONFIG_HOME` or `REX_CONFIG`.
 
    ```lua
    local fingers_dir = os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers"
@@ -59,7 +63,7 @@ On a Mac, with Rex installed:
 3. Run `rex config check`, then `rex config reload`.
    `rex keymap | grep rex_fingers` should list `alt+f` and `alt+shift+f`.
 
-To update, run the `curl` line again, then `rex config reload`.
+To update, run the line of step 1 again, then `rex config reload`.
 
 Tested with Rex for Mac 0.1.0 (2044) in nushell, bash, and zsh; panes of
 a Rex host with snapshot 2107.
@@ -86,7 +90,10 @@ git -C ~/.config/rex/plugins/rex-fingers checkout v0.5.0
 go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
 ```
 
-The `curl` script refuses a folder that is a git clone, so it never
+Then run `rex config check`, and `rex config reload` when it passes:
+Rex keeps the old plugin until it loads the config again.
+
+The install script refuses a folder that is a git clone, so it never
 replaces one. An install older than v0.4.2 used `go install`:
 [docs/HISTORY.md](docs/HISTORY.md), "The prebuilt tarball", says how to
 clean it up.
@@ -102,7 +109,8 @@ clean it up.
 | <kbd>Ctrl</kbd> + hint | open it; with `ctrl_action = ":reveal:"`, show a file in Finder |
 | <kbd>Esc</kbd>, <kbd>q</kbd>, <kbd>Space</kbd>, <kbd>Ctrl-c</kbd>, or the trigger again | leave |
 
-On a Mac, <kbd>Alt</kbd> is <kbd>Option</kbd>. `rex-fingers patterns`
+On a Mac, <kbd>Alt</kbd> is <kbd>Option</kbd>.
+`~/.config/rex/plugins/rex-fingers/bin/rex-fingers patterns`
 lists what gets a hint.
 
 ## Configuration
@@ -166,7 +174,7 @@ option.
   - A small box named `fingers` shows at the pane's top right corner
     during a run and for a second after the pick. It reads the keys.
   - Hints show after about 0.9 s on a host 200 ms away, and close by
-    themselves after 15 s.
+    themselves after 8 s.
   - Close the hints with <kbd>Esc</kbd>; a second press of the trigger
     does nothing. Stay on the tab while they are up: the app has frozen
     when it loaded another session during a run.

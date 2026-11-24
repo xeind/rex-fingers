@@ -40,8 +40,10 @@ git worktree add --detach "$SOURCE" "$TAG" >/dev/null 2>&1 || fail "git worktree
 
 FUZZTIME=0 sh "$SOURCE/scripts/smoke_test.sh" || fail "the smoke test failed"
 
-rm -rf "$REPO/dist"
-mkdir -p "$REPO/dist"
+# Everything is made in $OUT first; dist/ is replaced only when every
+# step has worked, so a failed build leaves the last dist/ as it was.
+OUT="$WORK/dist"
+mkdir -p "$OUT"
 for PLATFORM in $PLATFORMS; do
   OS=${PLATFORM%/*}; ARCH=${PLATFORM#*/}
   rm -rf "$STAGE"
@@ -50,23 +52,31 @@ for PLATFORM in $PLATFORMS; do
     -o "$STAGE/rex-fingers/bin/rex-fingers" .) || fail "the build for $PLATFORM failed"
   STAMPED=$(go version -m "$STAGE/rex-fingers/bin/rex-fingers" | awk '$1 == "mod" { print $3 }')
   [ "$STAMPED" = "$TAG" ] || fail "the $PLATFORM binary reports $STAMPED, not $TAG"
-  cp -R "$SOURCE/lua" "$SOURCE/README.md" "$SOURCE/LICENSE" "$STAGE/rex-fingers/"
+  cp -R "$SOURCE/lua" "$SOURCE/README.md" "$SOURCE/LICENSE" "$STAGE/rex-fingers/" ||
+    fail "the copy of the plugin for $PLATFORM failed"
+  [ -f "$STAGE/rex-fingers/lua/rex-fingers/init.lua" ] ||
+    fail "the $PLATFORM tarball would hold no lua/rex-fingers/init.lua"
   # COPYFILE_DISABLE keeps macOS tar from adding ._ files for extended
   # attributes. The owner flags keep the builder's user name out of the
   # tarball.
   COPYFILE_DISABLE=1 tar --uid 0 --gid 0 --uname '' --gname '' \
-    -czf "$REPO/dist/rex-fingers-$TAG-$OS-$ARCH.tar.gz" -C "$STAGE" rex-fingers \
+    -czf "$OUT/rex-fingers-$TAG-$OS-$ARCH.tar.gz" -C "$STAGE" rex-fingers \
     || fail "tar for $PLATFORM failed"
 done
 
-(cd "$REPO/dist" && shasum -a 256 ./*.tar.gz | sed 's|  \./|  |' > SHA256SUMS) || fail "the checksums failed"
+(cd "$OUT" && shasum -a 256 rex-fingers-*.tar.gz > SHA256SUMS) || fail "the checksums failed"
+[ "$(wc -l < "$OUT/SHA256SUMS" | tr -d ' ')" = "$(echo "$PLATFORMS" | wc -w | tr -d ' ')" ] ||
+  fail "SHA256SUMS does not have one line per tarball"
 
 if [ -f "$SOURCE/docs/releases/$TAG.md" ]; then
-  cp "$SOURCE/docs/releases/$TAG.md" "$REPO/dist/NOTES.md"
+  cp "$SOURCE/docs/releases/$TAG.md" "$OUT/NOTES.md" || fail "the copy of the notes failed"
 else
   PREVIOUS=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null)
-  git log --format='- %s' ${PREVIOUS:+"$PREVIOUS.."}"$TAG" > "$REPO/dist/NOTES.md"
+  git log --format='- %s' ${PREVIOUS:+"$PREVIOUS.."}"$TAG" > "$OUT/NOTES.md" || fail "the notes failed"
 fi
+[ -s "$OUT/NOTES.md" ] || fail "the notes are empty"
+
+{ rm -rf "$REPO/dist" && mv "$OUT" "$REPO/dist"; } || fail "could not move the release into dist/"
 
 echo
 ls -l "$REPO/dist"

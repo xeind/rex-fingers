@@ -34,18 +34,24 @@ Always:
    `~/.config/rex/plugins/rex-fingers`. It edits no config. Run it again
    to update.
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/xeind/rex-fingers/main/scripts/install.sh | sh
-   ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version
+   sh -c 'script=$(curl -fsSL https://raw.githubusercontent.com/xeind/rex-fingers/main/scripts/install.sh) && sh -c "$script"'
    ```
-   On Linux, or when that folder is a git clone, or when the script
-   fails, build from source with the steps in `README.md` under Build
-   from source. That needs Go 1.26: run `go version`, and if Go is
-   missing, ask the user before you install it. `go build -o` ignores
-   `GOBIN` and `GOPATH`. Git ignores `bin/`.
+   Run it in a Rex pane, where `rex` is on the `PATH`. Only when it
+   exits 0, run the `version` command of the folder it printed, by
+   default `~/.config/rex/plugins/rex-fingers/bin/rex-fingers version`,
+   and use the lines it printed in step 2. On Linux, or when
+   that folder is a git clone, build from source with the steps in
+   `README.md` under Build from source. That needs Go 1.26: run `go
+   version`, and if Go is missing, ask the user before you install it.
+   `go build -o` ignores `GOBIN` and `GOPATH`. Git ignores `bin/`. When
+   the script fails for another reason, such as a checksum, show the
+   user its message and stop.
    In step 2, when the user's config already calls `fingers.setup`,
    edit that call; leave one call only.
-2. In the user's Rex config, `~/.config/rex/init.lua` or a file it
-   requires, add:
+2. In the user's Rex config, add the lines below. The config is the
+   file `rex config check` prints after `path:`, or a file it requires;
+   `~/.config/rex/init.lua` unless `XDG_CONFIG_HOME` or `REX_CONFIG` is
+   set.
    ```lua
    local fingers_dir = os.getenv("HOME") .. "/.config/rex/plugins/rex-fingers"
    local fingers = dofile(fingers_dir .. "/lua/rex-fingers/init.lua")
