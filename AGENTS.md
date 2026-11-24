@@ -29,22 +29,21 @@ Always:
 
 ## Install it for a user
 
-1. Run `go version`. If Go is missing, ask the user, then install it:
-   `brew install go` on a Mac. An older Go fetches 1.26 by itself.
-   Clone the plugin at one tag, `V`, the newest of
-   `git ls-remote --tags --sort=-v:refname https://github.com/xeind/rex-fingers`,
-   and build the program into its `bin/`:
+1. On a Mac, run the install script. It fetches the newest release,
+   checks it, and puts the plugin and the program in
+   `~/.config/rex/plugins/rex-fingers`. It edits no config. Run it again
+   to update.
    ```sh
-   git clone --branch $V --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
-   go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
-   ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version   # prints $V
+   curl -fsSL https://raw.githubusercontent.com/xeind/rex-fingers/main/scripts/install.sh | sh
+   ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version
    ```
-   `go build -o` ignores `GOBIN` and `GOPATH`, so a mise or custom Go
-   setup lands the program in the same place. Git ignores `bin/`.
-   There is no prebuilt download; `docs/HISTORY.md` says why.
-   When `~/.config/rex/plugins/rex-fingers` already exists, update it
-   instead with the steps in `README.md` under Update. In step 2, edit
-   the user's existing `fingers.setup` call; leave one call only.
+   On Linux, or when that folder is a git clone, or when the script
+   fails, build from source with the steps in `README.md` under Build
+   from source. That needs Go 1.26: run `go version`, and if Go is
+   missing, ask the user before you install it. `go build -o` ignores
+   `GOBIN` and `GOPATH`. Git ignores `bin/`.
+   In step 2, when the user's config already calls `fingers.setup`,
+   edit that call; leave one call only.
 2. In the user's Rex config, `~/.config/rex/init.lua` or a file it
    requires, add:
    ```lua
@@ -105,6 +104,9 @@ sh scripts/smoke_test.sh            # gofmt, vet, build, -race, 10 s fuzz; no Re
 sh scripts/test_in_pane.sh          # live cases; opens Rex sessions, overwrites the clipboard
 sh scripts/test_resources.sh        # leaks, memory, 2 to 12 panes; about 3 minutes; fails if hints are up in the app
 sh scripts/test_host_pane.sh        # a pane of a Rex host, on a second server it starts and stops; about 3 minutes
+sh scripts/build_release.sh vX.Y.Z   # tarballs of a tag into dist/; publishes nothing; ask first
+sh scripts/install.sh               # what a user runs through curl
+sh scripts/test_install.sh          # every release download and install.sh, offline; about a minute
 go vet ./... && gofmt -l .
 go build -o bin/rex-fingers .       # bin/ is gitignored
 rex config check && rex config reload
@@ -129,6 +131,7 @@ Read the one the task needs:
   Lua, or an option that was cut.
 - `docs/HOST-PANES-STATUS.md`: before you work on a host's panes. The
   open faults, what was measured, and the review findings not yet fixed.
-  `docs/REX-REPORT-DRAFT.md` is the unsent report to the Rex developers.
+  `docs/REX-REPORT-DRAFT.md` is the unsent report to the Rex developers,
+  kept out of git; a clone does not have it.
 - `docs/CONFIGURING.md`: the user walkthrough, one check per step.
 - `docs/TMUX-FINGERS.md`: every tmux-fingers option and its match here.

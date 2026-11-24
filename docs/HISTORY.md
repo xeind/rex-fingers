@@ -73,6 +73,21 @@ its own folder, so the documented `~/go/bin/rex-fingers` did not exist
 there. The build into the clone ignores `GOBIN` and `GOPATH`, and it
 builds the program from the same checkout as the plugin.
 
+An install from before that has `binary` set to `~/go/bin/rex-fingers`
+or another Go folder. After an update, set `binary` to
+`bin/rex-fingers` in the plugin's folder, then delete the old program.
+It is in `go env GOBIN`, or in `$(go env GOPATH)/bin` when `GOBIN` is
+empty. A build with `GOPATH` set to the plugin folder left a read-only
+`pkg/` folder there; `chmod -R u+w` it, then remove it.
+
+With v0.5.0 the prebuilt program came back, fetched by a script:
+`scripts/install.sh`, run as `curl ... | sh`. A file `curl` fetches
+carries no quarantine attribute, so the program runs, still signed ad
+hoc and not notarized. The script checks the tarball against the
+release's `SHA256SUMS`. `scripts/build_release.sh` builds the tarballs
+from a tag. The clone and `go build` stay, for Linux and for a build of
+one's own.
+
 ## The floating pane that read the keys
 
 On 2026-11-19 a branch added `key_input = "focus"`: a one-row floating

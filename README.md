@@ -18,20 +18,33 @@ goes to the clipboard. A port of
   <img src="assets/demo-window-hints.gif" width="960" alt="Alt-Shift-f in a Rex window with nvim, Claude Code, and a shell: every path, URL, and commit hash in the three panes gets a red letter hint">
 </p>
 
-## Install
+## Copy to agent
 
-You need Go 1.26 or newer, git, Rex, and a clipboard command: `pbcopy`
-on a Mac, or `wl-copy`, `xclip`, or `xsel` on Linux.
+The short way: paste this into your coding agent.
 
-1. Clone the plugin and build the program into its `bin/` folder:
+```text
+Install rex-fingers for me in Rex.
+Read the section "Install it for a user" in
+https://raw.githubusercontent.com/xeind/rex-fingers/main/AGENTS.md
+and follow it.
+In setup, give binary as an absolute path.
+Run rex config check. Then ask me before you reload my config.
+Report which keys you bound: alt+f and alt+shift+f.
+```
+
+## Install by hand
+
+On a Mac, with Rex installed:
+
+1. Fetch the plugin and its program:
 
    ```sh
-   git clone --branch v0.4.2 --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
-   go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
-   ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version   # prints v0.4.2
+   curl -fsSL https://raw.githubusercontent.com/xeind/rex-fingers/main/scripts/install.sh | sh
    ```
 
-   The program lands there whatever `GOBIN` or `GOPATH` say.
+   It puts both in `~/.config/rex/plugins/rex-fingers`, checks the
+   download against the release's checksums, and prints step 2. It does
+   not touch your Rex config.
 
 2. Add to `~/.config/rex/init.lua`:
 
@@ -46,46 +59,37 @@ on a Mac, or `wl-copy`, `xclip`, or `xsel` on Linux.
 3. Run `rex config check`, then `rex config reload`.
    `rex keymap | grep rex_fingers` should list `alt+f` and `alt+shift+f`.
 
-Tested with Rex for Mac 0.1.0 (2044) in nushell, bash, and zsh. On Linux
-only the unit tests have run. rex-fingers makes no network call after the
-install.
+To update, run the `curl` line again, then `rex config reload`.
 
-## Update
+Tested with Rex for Mac 0.1.0 (2044) in nushell, bash, and zsh; panes of
+a Rex host with snapshot 2107.
+rex-fingers makes no network call after the install.
 
-Move the clone to the new tag and build again:
+## Build from source
+
+On Linux, or to build it yourself, you need Go 1.26 or newer and git.
+For the clipboard, Linux needs `wl-copy`, `xclip`, or `xsel`. Only the
+unit tests have run on Linux.
 
 ```sh
-git -C ~/.config/rex/plugins/rex-fingers fetch --depth 1 origin tag v0.4.2
-git -C ~/.config/rex/plugins/rex-fingers checkout v0.4.2
+git clone --branch v0.5.0 --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
+go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
+~/.config/rex/plugins/rex-fingers/bin/rex-fingers version   # prints v0.5.0
+```
+
+Then follow steps 2 and 3 above. To update a clone, move it to the new
+tag and build again:
+
+```sh
+git -C ~/.config/rex/plugins/rex-fingers fetch --depth 1 origin tag v0.5.0
+git -C ~/.config/rex/plugins/rex-fingers checkout v0.5.0
 go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
 ```
 
-Then run `rex config reload`.
-
-An older install used `go install`, and its `binary` names
-`~/go/bin/rex-fingers` or another Go folder. After the update, set
-`binary` as in install step 2, then delete the old program. It is in `go env GOBIN`, or in
-`$(go env GOPATH)/bin` when `GOBIN` is empty. A build with `GOPATH` set to
-the plugin folder left a read-only `pkg/` folder there. Delete it:
-
-```sh
-chmod -R u+w ~/.config/rex/plugins/rex-fingers/pkg
-rm -r ~/.config/rex/plugins/rex-fingers/pkg
-```
-
-## Copy to agent
-
-Paste this into a coding agent to have it do the install:
-
-```text
-Install rex-fingers for me in Rex.
-Read the section "Install it for a user" in
-https://raw.githubusercontent.com/xeind/rex-fingers/main/AGENTS.md
-and follow it.
-In setup, give binary as an absolute path.
-Run rex config check. Then ask me before you reload my config.
-Report which keys you bound: alt+f and alt+shift+f.
-```
+The `curl` script refuses a folder that is a git clone, so it never
+replaces one. An install older than v0.4.2 used `go install`:
+[docs/HISTORY.md](docs/HISTORY.md), "The prebuilt tarball", says how to
+clean it up.
 
 ## Use
 
@@ -156,32 +160,25 @@ option.
   the pane, but hides its top two rows.
 - No multi-select and no jump mode: Rex cannot move a pane's cursor from
   outside.
-- On a pane of a Rex host, nothing is installed on the host: its own
-  `rex` runs a script the plugin sends with each run. With 200 ms a
-  round trip, the hints show after about 0.9 s, and the pane is back
-  when the key arrives. The hints close by themselves after 15 s. While
-  they are up, other keys this plugin binds wait, in every pane, and may
-  be lost; a second press of the key does nothing, Escape closes. Stay
-  on the tab while the hints are up: the app has frozen during a run,
-  each time as it loaded another session's panes. A small box named
-  `fingers` shows at the pane's top right corner while the hints are
-  up: it reads the keys. `host_keys = "substitute"` is a trial: the box
-  says FINGERS, and once the app has loaded it, about a second on a
-  host 200 ms away, it takes the pane's own place with the same hints
-  and is gone until the pick, when it shows for another second. Rex for
-  Mac snapshot 2107 ended itself on a key press with it, so it is off
-  unless set. `host_keys = "mode"` reads the keys in a key mode
-  of the app instead: no box, no key held up, and the trigger closes
-  the hints, but the app shows a panel that lists every key of the
-  mode, and it must allow remote control. The first letter of a two-letter hint changes nothing on screen.
-  `overlay = "float"` and `follow_scroll` do not reach a host's pane.
-  `host_follow_scroll = true` hints the page the focused pane is
-  scrolled to: the copy-mode selection shows for about a second, the
-  hints take about 1.4 s longer, and the app must allow remote control.
-  `:open:` and `:reveal:` copy a path. The host needs `sh`, `stty`,
-  `ps`, `sleep`, `tty`, and `hexdump`. A host whose panes have no `rex` of their own
-  takes about 2.3 s to the hints and 1 s for a pick, and needs `cat`
-  too.
+- A pane of a Rex host works with nothing installed on the host: its
+  own `rex` runs a script the plugin sends with each run. What differs
+  from a local pane:
+  - A small box named `fingers` shows at the pane's top right corner
+    during a run and for a second after the pick. It reads the keys.
+  - Hints show after about 0.9 s on a host 200 ms away, and close by
+    themselves after 15 s.
+  - Close the hints with <kbd>Esc</kbd>; a second press of the trigger
+    does nothing. Stay on the tab while they are up: the app has frozen
+    when it loaded another session during a run.
+  - `:open:` and `:reveal:` copy the path. The first letter of a
+    two-letter hint changes nothing on screen.
+  - `overlay = "float"` and `follow_scroll` do not apply.
+    `host_follow_scroll = true` hints the page a pane is scrolled to; the
+    selection shows for about a second.
+  - `host_keys = "substitute"` and `host_keys = "mode"` are other ways to
+    read the keys, each with its own cost;
+    [docs/DESIGN.md](docs/DESIGN.md#a-pane-on-a-rex-host) has them.
+  - The host needs `sh`, `stty`, `ps`, `sleep`, `tty`, and `hexdump`.
 - On a pane running `ssh`, `mosh`, or `et`, the paths on screen are the
   other machine's: `:open:` and `:reveal:` copy a path instead. URLs
   open as usual.
@@ -192,12 +189,12 @@ option.
 
 | Symptom | Do |
 | --- | --- |
-| `go: command not found` | `brew install go`, then run the `go build` line of install step 1. |
+| `go: command not found`, when you build from source | `brew install go`, then run the `go build` line again. |
 | Nothing happens on the key. | `rex config check`, then `rex keymap \| grep rex_fingers`. |
 | Every run is slow. | Set `binary`. The first run after an install is slow once while macOS checks the program. |
 | An action or `copy_command` says `command not found`. | Actions get the Rex server's `PATH`, `/usr/bin:/bin:/usr/sbin:/sbin` on a Mac. Name the program by its absolute path. |
 | Hint letters stayed in the pane. | Press the key again, then <kbd>Esc</kbd>, or run `rex do rex_fingers_cancel`. A config reload while hints were up causes this. |
-| `flag provided but not defined`, or `speaks protocol ... build it again` in `rex server logs` | The program is older than the plugin. Run the `go build` line again, and check that `binary` names the clone's `bin/rex-fingers`. |
+| `flag provided but not defined`, or `speaks protocol ... build it again` in `rex server logs` | The program is older than the plugin. Run the install again, or the `go build` line for a clone, and check that `binary` names `bin/rex-fingers` in the plugin's folder. |
 | A Lua error the config check misses. | `rex server logs` shows it. |
 
 ## License

@@ -32,19 +32,17 @@ tmux-fingers user finds every option mapped in
 
 ## 1. Get the program and the plugin
 
-Clone the plugin next to your config, then build the program with Go
-1.26 or newer into the clone's `bin/` folder. One checkout gives both, so
-they always match:
+On a Mac, the install script fetches both next to your config, from one
+release, so they always match:
 
 ```sh
-git clone --branch v0.4.2 --depth 1 https://github.com/xeind/rex-fingers ~/.config/rex/plugins/rex-fingers
-go build -C ~/.config/rex/plugins/rex-fingers -o bin/rex-fingers .
+curl -fsSL https://raw.githubusercontent.com/xeind/rex-fingers/main/scripts/install.sh | sh
 ~/.config/rex/plugins/rex-fingers/bin/rex-fingers version
 ```
 
-Check: the last command prints `v0.4.2`. `GOBIN` and `GOPATH` do not
-change where the program lands, and git ignores `bin/`. To move an
-existing install to a new tag, see [Update](../README.md#update).
+Check: the last command prints the release's tag, such as `v0.5.0`. To
+update, run the script again. On Linux, or to build the program
+yourself, see [Build from source](../README.md#build-from-source).
 
 ## 2. Load the plugin
 

@@ -71,7 +71,8 @@ shows a panel of the mode's 69 keys over the pane and the owner turned
 that down. With it, leaving the tab during a run was not tried. A
 script pushed to the host failed from a key and from the palette; that
 is in HISTORY.md and REX-FACTS.md. A draft of what to ask the Rex developers
-is in [REX-REPORT-DRAFT.md](REX-REPORT-DRAFT.md); it was not sent.
+is in `docs/REX-REPORT-DRAFT.md`, a file kept out of git; it was not
+sent.
 
 ## Review findings, from reading the code
 
