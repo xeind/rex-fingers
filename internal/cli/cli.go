@@ -118,7 +118,7 @@ func Main() {
 		fs.Usage = usage
 		fs.Parse(os.Args[2:])
 		err := reply(map[string]any{"command": inpane.ReaderCommand(*lifetime), "mark": inpane.ReaderMark,
-			"substitute": inpane.SubstituteCommand(*lifetime)})
+			"substitute": inpane.SubstituteCommand(*lifetime), "dummy": inpane.DummyCommand()})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)

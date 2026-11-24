@@ -177,7 +177,7 @@ fi
 if begin "output during a run" 0.28; then
   # The pane prints a line while the hints are up. The key still picks,
   # the line stays, and no hint letter is left on the screen.
-  T send -s "$S" -b "$B" "sh -c 'sleep 5; echo late-output'"; T send-key -s "$S" -b "$B" enter
+  T send -s "$S" -b "$B" "sh -c 'sleep 3; echo late-output'"; T send-key -s "$S" -b "$B" enter
   trigger "$B" &
   run=$!
   wait_hints && wait_reader
@@ -194,8 +194,8 @@ if [ "$mode" != false ] && begin "output during a run, action killed" 0.28; then
   # The pane prints while the hints are up, and the action dies before
   # the run ends: nobody sends the agent the rows to repaint. After its
   # wait it writes the restore it has, so no hint letter stays.
-  T send -s "$S" -b "$B" "sh -c 'sleep 5; echo late-output'"; T send-key -s "$S" -b "$B" enter
-  T --timeout 9s do rex_fingers -s "$S" -b "$B" >/dev/null 2>&1
+  T send -s "$S" -b "$B" "sh -c 'sleep 3; echo late-output'"; T send-key -s "$S" -b "$B" enter
+  T --timeout 5s do rex_fingers -s "$S" -b "$B" >/dev/null 2>&1
   expect "hints still up when the action died" "$(screen | grep -c '^[a-z]tmp/')" 2
   sleep 16
   expect "hint letters left" "$(screen | grep -c '^[a-z]tmp/')" 0
@@ -280,7 +280,7 @@ fi
 
 if begin "run limit" 0.28; then
   t=$(now); trigger "$B"; took=$(($(now) - t))
-  if [ $took -ge 14 ] && [ $took -le 20 ]; then ok "ended by itself after $took s"; else fail "took $took s, want about 16"; fi
+  if [ $took -ge 7 ] && [ $took -le 13 ]; then ok "ended by itself after $took s"; else fail "took $took s, want about 9"; fi
   clean; unchanged; finish
 fi
 
@@ -546,7 +546,7 @@ fi
 
 if [ "$mode" != false ] && begin "mode: run limit" 0.28; then
   mtrigger "$B"; up
-  sleep 17
+  sleep 10
   expect "hints gone at the limit" "$(screen | grep -c 'atmp/alpha')" 0
   hkey key=a
   expect "the late key ends the run" "$(jq -r .status "$dir/key.out")" timeout
@@ -555,7 +555,7 @@ if [ "$mode" != false ] && begin "mode: run limit" 0.28; then
 fi
 
 if [ "$mode" != false ] && begin "mode: output during a run" 0.28; then
-  T send -s "$S" -b "$B" "sh -c 'sleep 5; echo late-output'"; T send-key -s "$S" -b "$B" enter
+  T send -s "$S" -b "$B" "sh -c 'sleep 3; echo late-output'"; T send-key -s "$S" -b "$B" enter
   mtrigger "$B"
   i=0; until screen | grep -q '^late-output'; do i=$((i + 1)); [ $i -gt 100 ] && break; sleep 0.1; done
   sleep 0.5; hkey key=a; sleep 0.5

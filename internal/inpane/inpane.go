@@ -153,6 +153,14 @@ exec hexdump -v -e '1/1 "%02x\n"'`
 	return []string{"sh", "-c", script, "sh", strconv.Itoa(lifetime)}
 }
 
+// DummyCommand is the argv of the block a detached pane is placed beside,
+// in a small float, on its way back from a substitute. It shows the
+// label FINGERS and ends by itself. It comes from here so that the
+// agent's Lua holds no shell line.
+func DummyCommand() []string {
+	return []string{"sh", "-c", `printf '\033[?25l\033[7m FINGERS \033[0m'; sleep 30`}
+}
+
 // SubstituteCommand is the argv of the key reader that takes a pane's
 // place, for a pane on another machine. The caller appends the path of a
 // file. The program sets the terminal raw, writes the terminal's path

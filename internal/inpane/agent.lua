@@ -265,6 +265,9 @@ end
 local function give_back(sub, pane, wait)
   local view = rex.session.view{ session_id = sid }
   local list = rex.call("session.list_blocks", { session_id = sid })
+  -- Without an answer nothing is known about the pane: change nothing,
+  -- so the substitute and its label stay for another try.
+  if not view or not list then return false end
   local alive = false
   for _, b in ipairs((list and list.blocks) or {}) do
     if b.block_id == pane then alive = true end
@@ -276,8 +279,9 @@ local function give_back(sub, pane, wait)
       session_id = sid, window_id = window, bounds = corner(rect), focus = false,
       layout = rex.layout.block{
         flavor = terminal .. ".shell", label = "fingers-dummy",
+        -- The program names the float; without it the block only waits.
         options = { shell = "none", exit = { on_completion = true },
-                    command = { "sh", "-c", "printf '\\033[?25l\\033[7m FINGERS \\033[0m'; sleep 30" } },
+                    command = (args.reader and args.reader.dummy) or { "sleep", "30" } },
       },
     }
     local dummy = made and made.block_ids and made.block_ids[1]
@@ -316,10 +320,38 @@ local function give_back(sub, pane, wait)
   end
   view = rex.session.view{ session_id = sid }
   local now_layer = layer_of(view, sub)
+  -- The pane must be home before its substitute goes, or nothing names
+  -- it any more. When the float could not be made, or the swap failed,
+  -- the pane is placed in a split beside the substitute instead: the
+  -- layout changes for a moment, and the pane is not lost.
+  local home = layer_of(view, pane)
+  if alive and now_layer and (not home or small(home)) then
+    rex.session.move_block{ session_id = sid, block_id = pane, anchor_block_id = sub }
+    view = rex.session.view{ session_id = sid }
+    now_layer = layer_of(view, sub)
+    home = layer_of(view, pane)
+  end
+  if alive and now_layer and not small(now_layer) and (not home or small(home)) then
+    -- Still not placed: the substitute stays, with its label, for the
+    -- next run to try again.
+    return false
+  end
   if now_layer and small(now_layer) then
     rex.session.close_layer{ session_id = sid, layer_id = now_layer.layer_id }
   else
     rex.call("block.close", { session_id = sid, block_id = sub })
+  end
+  -- A float of the way back that the swap did not empty.
+  for _, w in ipairs((rex.session.view{ session_id = sid } or {}).windows or {}) do
+    for _, layer in ipairs(w.layers or {}) do
+      local only_dummies = #(layer.blocks or {}) > 0
+      for _, b in ipairs(layer.blocks or {}) do
+        if b.label ~= "fingers-dummy" then only_dummies = false end
+      end
+      if only_dummies and small(layer) then
+        rex.session.close_layer{ session_id = sid, layer_id = layer.layer_id }
+      end
+    end
   end
   if alive then
     rex.session.focus_block{ session_id = sid, block_id = pane }
@@ -330,18 +362,39 @@ end
 -- sweep closes what a run that died left in the session: its reader,
 -- which may hold the focus, its writers, and its agent. A pane whose
 -- substitute still holds its place goes back first.
+--
+-- A label alone does not make a block ours: a user may name a pane
+-- fingers-reader. So a block is closed only when its label is ours and
+-- its foreground program is one a run starts, or it has none. On a Mac
+-- a block started without a shell reports login there; a pane with a
+-- shell reports the shell or what runs in it.
+local programs = { login = true, sh = true, dash = true, rex = true, hexdump = true,
+                   dd = true, cat = true, sleep = true, stty = true }
+-- A substitute whose pane could not be put back is kept, with its label,
+-- which is all that still names the pane.
+local unresolved = {}
+local function leftover(b)
+  if not is_ours(b.label) or b.block_id == self_id or unresolved[b.block_id] then return false end
+  -- A question that fails says nothing about the block: leave it.
+  local process = call(b.block_id, "process")
+  if not process then return false end
+  local name = process.foreground and process.foreground.name
+  return name == nil or programs[name] == true
+end
 local function sweep()
   local list = rex.call("session.list_blocks", { session_id = sid })
   for _, b in ipairs((list and list.blocks) or {}) do
     local pane = substituted(b.label)
-    if pane then give_back(b.block_id, pane) end
+    if pane and leftover(b) and give_back(b.block_id, pane) == false then
+      unresolved[b.block_id] = true
+    end
   end
   local view = rex.session.view{ session_id = sid }
   for _, w in ipairs((view and view.windows) or {}) do
     for _, layer in ipairs(w.layers or {}) do
       local all = #(layer.blocks or {}) > 0
       for _, b in ipairs(layer.blocks or {}) do
-        if not is_ours(b.label) then all = false end
+        if not leftover(b) then all = false end
       end
       if all and layer.kind ~= "tiled" then
         rex.session.close_layer{ session_id = sid, layer_id = layer.layer_id }
@@ -350,7 +403,7 @@ local function sweep()
   end
   list = rex.call("session.list_blocks", { session_id = sid })
   for _, b in ipairs((list and list.blocks) or {}) do
-    if is_ours(b.label) and b.block_id ~= self_id then
+    if leftover(b) then
       rex.call("block.close", { session_id = sid, block_id = b.block_id })
     end
   end
@@ -490,6 +543,12 @@ local function leave()
 end
 
 if #panes == 0 or panes[1].block ~= origin or not reader then
+  -- The reader had the focus: give it back and let the reader stay a
+  -- moment, as at the end of a run.
+  if reader and not hidden then
+    rex.session.focus_block{ session_id = sid, block_id = origin }
+    rex.sleep(0.8)
+  end
   leave()
   send("RXF2", { status = "failed", reader = reader, error = reader and "no process in the pane" or "the key reader did not start" })
   return linger()
@@ -656,8 +715,10 @@ local function substitute_turn()
     local name = title and title.title and title.title:gsub("%c", "") or ""
     write_tty(substitute_tty, run.panes[1].frame .. (name ~= "" and ("\27]2;" .. name .. "\7") or ""))
     rex.sleep(0.03)
-    rex.session.set_block_label{ session_id = sid, block_id = reader, label = substitute_label .. origin }
-    if rex.session.swap_blocks{ session_id = sid, block_id = origin, other_block_id = reader } then
+    -- The label is what names the pane to a later run, so no swap
+    -- without it.
+    local labeled = rex.session.set_block_label{ session_id = sid, block_id = reader, label = substitute_label .. origin }
+    if labeled and rex.session.swap_blocks{ session_id = sid, block_id = origin, other_block_id = reader } then
       rex.session.detach_block{ session_id = sid, block_id = origin }
       swapped, layer = true, nil
       step = 4

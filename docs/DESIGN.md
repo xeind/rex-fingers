@@ -305,7 +305,7 @@ Window scope leaves the reader out of the panes it hints.
 and when the caller goes away, and runs no more of its Lua, so no
 cleanup of the action's own can be counted on:
 
-- A run ends by itself 15 seconds after the trigger (`host_limit`), and
+- A run ends by itself 8 seconds after the trigger (`host_limit`), and
   the wait for the writer stops 3 seconds before that. The end of a run
   restores the pane, closes the reader, focuses the pane, and then
   closes the writers, each step under `pcall`, also after an error. That

@@ -986,7 +986,10 @@ function M.setup(user)
   --   * a run ends by itself host_limit seconds after the trigger;
   --   * the reader ends itself after reader_lifetime seconds;
   --   * every trigger first closes the readers and writers it finds.
-  local host_limit, reader_lifetime = 15, 20
+  -- Eight seconds: Rex for Mac snapshots 2107 and 2108 ended themselves
+  -- each time a run on a host had been up for 10 to 14 seconds
+  -- (2026-11-24).
+  local host_limit, reader_lifetime = 8, 20
   -- The live run of each session, and when the last one ended.
   local host_runs, host_ended = {}, {}
   -- Readers of runs that ended. The app queues a trigger pressed during
@@ -1348,6 +1351,11 @@ function M.setup(user)
       local data = f:read("*a")
       f:close()
       agent_send(sid, block, "RUN " .. #data .. "\n" .. data)
+      -- From here the agent puts the panes back, closes its reader, and
+      -- ends itself, also when this action fails or is stopped. A close
+      -- of its block now could leave hints up, or a pane out of its
+      -- window. A run in the key mode is ended by finish, below.
+      if not mode then agent_ends_itself = true end
       conclude = function()
       -- The pick, or how the run ended. The agent ends the run by itself
       -- at host_limit.
