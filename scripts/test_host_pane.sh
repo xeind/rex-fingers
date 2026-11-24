@@ -40,6 +40,7 @@ local fingers = dofile("$root/lua/rex-fingers/init.lua")
 fingers.setup{
   binary = "$root/bin/rex-fingers",
   follow_scroll = true,
+  host_keys = "substitute",
   flash = true,
   ctrl_action = ":reveal:",
   copy_command = "cat > $dir/copied",
@@ -75,6 +76,12 @@ key() { T block call -s "$S" -b "$(reader)" write "$(jq -cn --arg d "$1" '{data:
 mode=${TEST_AGENT:-true}
 extra=
 [ "$mode" = false ] && extra="agent=false"
+# TEST_KEYS=reader runs the agent's cases with the reader that prints the
+# keys on its screen; the test config sets the substitute.
+[ -n "${TEST_KEYS:-}" ] && extra="keys=$TEST_KEYS"
+# The substitute's cases need the agent and the default keys.
+sub=true
+if [ "$mode" = false ] || [ -n "${TEST_KEYS:-}" ]; then sub=false; fi
 trigger() { T --timeout 60s do rex_fingers -s "$S" -b "$@" $extra > "$dir/trigger.out" 2>&1; }
 result() { tr -d '\n' < "$dir/trigger.out" | cut -c1-90; }
 wait_reader() { i=0; until [ -n "$(reader)" ]; do i=$((i + 1)); [ $i -gt 80 ] && return 1; sleep 0.1; done; }
@@ -97,7 +104,10 @@ begin() {
 }
 # clean: what every run must leave. The pane's own files are the frame
 # file and the program's run file.
+wait_back() { i=0; until [ "$(blocks | grep -c 'fingers-')" = 0 ]; do i=$((i + 1)); [ $i -gt 60 ] && return 1; sleep 0.1; done; }
 clean() {
+  # The agent closes its reader 0.8 s after its report, and then ends.
+  wait_back
   expect "no reader or writer left" "$(blocks | grep -c 'fingers-')" 0
   expect "focus on the pane" "$(focused)" "$B"
   id=$(printf %s "$B" | tr -cd '[:alnum:]')
@@ -342,6 +352,239 @@ if begin "reload during a run" 0.28; then
   sleep 3; wait_reader
   if [ "$(reader)" != "$R" ]; then ok "a new reader"; else fail "the old reader is still up"; fi
   key "$(printf '\033')"; wait $run
+  clean; unchanged; finish
+fi
+
+# The substitute: the reader takes the pane's place once the app has
+# loaded it, which the agent sees as a size another client asked for.
+# There is no app here, so the test asks one. The pane's way back then
+# waits its full 1.5 s for the app.
+substitute() { T api call -s "$S" session.view '{}' | jq -r '[.windows[0].layers[] | select(.kind=="tiled") | .blocks[] | select((.label // "") | startswith("fingers-substitute:")) | .block_id][0] // empty'; }
+placement() { T api call -s "$S" session.list_blocks '{}' | jq -r --arg b "$B" '.blocks[] | select(.block_id==$b) | .placement'; }
+# A size a client asked for is listed only while that client is
+# connected, so a script asks and stays for 3 s.
+load() {
+  T do -e 'rex.block.call("com.superlogical.terminal", "resize", { session_id = rex.session_id, block_id = rex.args.block, columns = 5, rows = 5 })
+rex.sleep(3)' -s "$S" --args "$(jq -cn --arg b "$(reader)" '{block:$b}')" >/dev/null 2>&1 &
+}
+wait_substitute() { i=0; until [ -n "$(substitute)" ]; do i=$((i + 1)); [ $i -gt 50 ] && return 1; sleep 0.1; done; }
+skey() { T block call -s "$S" -b "$(substitute)" write "$(jq -cn --arg d "$1" '{data:$d}')" >/dev/null; }
+pane_size() { T block call -s "$S" -b "$B" size '{}' | jq -r '"\(.columns)x\(.rows)"'; }
+
+if [ "$sub" = true ] && begin "substitute: pick" 0.28; then
+  size=$(pane_size)
+  trigger "$B" &
+  run=$!
+  wait_hints && wait_reader; load
+  if wait_substitute; then ok "the substitute is in the pane's place"; else fail "no substitute in the pane's place"; fi
+  SUB=$(substitute)
+  expect "the substitute has the focus" "$(focused)" "$SUB"
+  expect "the pane is detached" "$(placement)" detached
+  expect "no small float left" "$(reader)" ""
+  expect "the pane keeps its size" "$(pane_size)" "$size"
+  # The same frame as the pane's, and the float's label is gone from it.
+  expect "the substitute shows what the pane shows" "$(T capture -s "$S" -b "$SUB" --format=text --trim)" "$(screen)"
+  case "$(screen)" in *"atmp/alpha"*) ok "with the hints" ;; *) fail "the pane shows no hints" ;; esac
+  t=$(ms); skey a; wait $run; over=$(($(ms) - t))
+  D=$(blocks | awk '$1 == "fingers-dummy" { print $2 }')
+  expect "the float of the way back says FINGERS" "$(T capture -s "$S" -b "$D" --format=text --trim | tr -d ' \n')" FINGERS
+  expect "copied" "$(cat "$dir/copied" 2>/dev/null)" /tmp/alpha
+  if [ $over -le 1200 ]; then ok "action over within 1.2 s of the key"; else fail "action over after $over ms, want 1200 at most"; fi
+  if wait_back; then ok "the pane came back"; else fail "blocks left: $(blocks | grep 'fingers-')"; fi
+  expect "the pane is placed" "$(placement)" placed
+  expect "the pane keeps its size" "$(pane_size)" "$size"
+  clean; unchanged; finish
+fi
+
+if [ "$sub" = true ] && begin "substitute: escape, and a key on the way back" 0.28; then
+  trigger "$B" &
+  run=$!
+  wait_hints && wait_reader; load; wait_substitute
+  skey "$(printf '\033')"; wait $run
+  # Typed while the app loads the pane again: it must reach the pane.
+  skey "x"
+  wait_back
+  case "$(screen | tail -1)" in *x*) ok "the key reached the pane" ;; *) fail "the key did not reach the pane: $(screen | tail -1)" ;; esac
+  clean; finish
+fi
+
+if [ "$sub" = true ] && begin "substitute: shift pastes" 0.28; then
+  trigger "$B" &
+  run=$!
+  wait_hints && wait_reader; load; wait_substitute
+  skey S; wait $run; wait_back; sleep 0.3
+  case "$(screen | tail -1)" in *"/tmp/beta"*) ok "pasted at the prompt" ;; *) fail "not pasted: $(screen | tail -1)" ;; esac
+  clean; finish
+fi
+
+if [ "$sub" = true ] && begin "substitute: a run that died" 0.28; then
+  # The caller goes away and the agent is closed with the substitute in
+  # the pane's place. The focus is on the substitute, so the next trigger
+  # arrives there: its agent must put the pane back and run on it.
+  T --timeout 5s do rex_fingers -s "$S" -b "$B" >/dev/null 2>&1 &
+  dead=$!
+  wait_hints && wait_reader; load; wait_substitute
+  SUB=$(substitute)
+  T block close -s "$S" "$(blocks | awk '$1 == "fingers-agent" { print $2 }')" >/dev/null
+  wait $dead
+  expect "the dead run left the pane detached" "$(placement)" detached
+  # A trigger in the clock second a run ended is dropped.
+  sleep 1.2
+  trigger "$SUB" &
+  run=$!
+  sleep 3; wait_reader
+  expect "the pane is back in its place" "$(placement)" placed
+  expect "the old substitute is gone" "$(substitute)" ""
+  key s; wait $run
+  expect "copied" "$(cat "$dir/copied" 2>/dev/null)" /tmp/beta
+  clean; unchanged; finish
+fi
+
+if [ "$sub" = true ] && begin "substitute: output during a run" 0.28; then
+  T send -s "$S" -b "$B" "sleep 2; echo printed-later"
+  T send-key -s "$S" -b "$B" enter
+  trigger "$B" &
+  run=$!
+  wait_hints && wait_reader; load; wait_substitute
+  sleep 2.5
+  skey a; wait $run; wait_back
+  expect "copied" "$(cat "$dir/copied" 2>/dev/null)" /tmp/alpha
+  if screen | grep -q 'atmp/alpha'; then fail "hints left in the pane"; else ok "no hints left in the pane"; fi
+  if screen | grep -q 'printed-later'; then ok "the output is there"; else fail "the output is lost"; fi
+  clean; finish
+fi
+
+# The key mode: the hint keys come from an action the app binds in a key
+# mode, and no pane opens. There is no app here, so keys=mode runs
+# without the mode itself, and hkey calls the action a key is bound to.
+# The trigger returns once the hints are up.
+mtrigger() { T --timeout 60s do rex_fingers -s "$S" -b "$@" keys=mode > "$dir/trigger.out" 2>&1; }
+hkey() { T --timeout 30s do rex_fingers_host_key -s "$S" -b "$B" "$@" > "$dir/key.out" 2>&1; }
+floats() { T api call -s "$S" session.view '{}' | jq -r '[.windows[0].layers[] | select(.kind!="tiled")] | length'; }
+up() {
+  expect "the trigger returned with the hints up" "$(jq -r .keys "$dir/trigger.out")" mode
+  expect "hints on the screen" "$(screen | grep -c 'atmp/alpha')" 1
+  expect "no pane opened" "$(floats)" 0
+  expect "focus still on the pane" "$(focused)" "$B"
+}
+
+if [ "$mode" != false ] && begin "mode: pick" 0.28; then
+  t=$(ms); mtrigger "$B"; shown=$(($(ms) - t))
+  up
+  t=$(ms); hkey key=a; over=$(($(ms) - t))
+  echo "       hints after $shown ms, the key's action over after $over ms"
+  expect "the key picked" "$(jq -r .status "$dir/key.out")" pick
+  expect "copied" "$(cat "$dir/copied" 2>/dev/null)" /tmp/alpha
+  clean; unchanged; finish
+fi
+
+if [ "$mode" != false ] && begin "mode: shift pastes" 0.28; then
+  mtrigger "$B"; hkey key=s modifier=shift; sleep 0.5
+  case "$(screen | tail -1)" in *"/tmp/beta"*) ok "pasted at the prompt" ;; *) fail "not pasted: $(screen | tail -1)" ;; esac
+  clean; finish
+fi
+
+if [ "$mode" != false ] && begin "mode: ctrl copies a path" 0.28; then
+  mtrigger "$B"; hkey key=a modifier=ctrl
+  expect "copied" "$(cat "$dir/copied" 2>/dev/null)" /tmp/alpha
+  clean; unchanged; finish
+fi
+
+if [ "$mode" != false ] && begin "mode: escape" 0.28; then
+  mtrigger "$B"; up; hkey key=escape
+  expect "cancelled" "$(jq -r .status "$dir/key.out")" cancel
+  expect "nothing copied" "$(cat "$dir/copied" 2>/dev/null)" ""
+  clean; unchanged; finish
+fi
+
+if [ "$mode" != false ] && begin "mode: the trigger closes" 0.28; then
+  mtrigger "$B"; up; mtrigger "$B"
+  expect "the second trigger closed the run" "$(result)" '{"closed":1}'
+  expect "nothing copied" "$(cat "$dir/copied" 2>/dev/null)" ""
+  clean; unchanged; finish
+fi
+
+if [ "$mode" != false ] && begin "mode: a key that is no hint, and a key with no run" 0.28; then
+  mtrigger "$B"; hkey key=z
+  expect "a key that is no hint is left" "$(tr -d '\n' < "$dir/key.out")" '{"ignored":1}'
+  expect "hints still up" "$(screen | grep -c 'atmp/alpha')" 1
+  hkey key=a
+  expect "copied" "$(cat "$dir/copied" 2>/dev/null)" /tmp/alpha
+  hkey key=a
+  expect "a key with no run is left" "$(tr -d '\n' < "$dir/key.out")" '{"ignored":1}'
+  clean; unchanged; finish
+fi
+
+if [ "$mode" != false ] && begin "mode: two letters" 0.28; then
+  T send -s "$S" -b "$B" "sh -c 'clear; seq 1 30 | sed s,^,/tmp/row-,'"; T send-key -s "$S" -b "$B" enter; sleep 1.5
+  vt > "$dir/vt.before"
+  mtrigger "$B"
+  line=$(screen | grep '^[a-z][a-su-z]mp/row-[0-9]*$' | head -1)
+  hint=$(printf %s "$line" | cut -c1-2); want="/t$(printf %s "$line" | cut -c3-)"
+  expect "a hint of two letters" "$(printf %s "$hint" | grep -c '^[a-z][a-z]$')" 1
+  hkey key="$(printf %s "$hint" | cut -c1)"
+  expect "the first letter keeps the run" "$(jq -r .typed "$dir/key.out")" "$(printf %s "$hint" | cut -c1)"
+  if [ "$(screen | grep -c '^[a-z][a-su-z]mp/row-')" -gt 0 ]; then ok "hints still up"; else fail "the hints went down after the first letter"; fi
+  hkey key="$(printf %s "$hint" | cut -c2)"
+  expect "copied" "$(cat "$dir/copied" 2>/dev/null)" "$want"
+  clean; unchanged; finish
+fi
+
+if [ "$mode" != false ] && begin "mode: run limit" 0.28; then
+  mtrigger "$B"; up
+  sleep 17
+  expect "hints gone at the limit" "$(screen | grep -c 'atmp/alpha')" 0
+  hkey key=a
+  expect "the late key ends the run" "$(jq -r .status "$dir/key.out")" timeout
+  expect "nothing copied" "$(cat "$dir/copied" 2>/dev/null)" ""
+  clean; unchanged; finish
+fi
+
+if [ "$mode" != false ] && begin "mode: output during a run" 0.28; then
+  T send -s "$S" -b "$B" "sh -c 'sleep 5; echo late-output'"; T send-key -s "$S" -b "$B" enter
+  mtrigger "$B"
+  i=0; until screen | grep -q '^late-output'; do i=$((i + 1)); [ $i -gt 100 ] && break; sleep 0.1; done
+  sleep 0.5; hkey key=a; sleep 0.5
+  expect "copied" "$(cat "$dir/copied" 2>/dev/null)" /tmp/alpha
+  expect "the line the pane printed" "$(screen | grep -c '^late-output')" 1
+  expect "hint letters left" "$(screen | grep -c '^[a-z]tmp/')" 0
+  expect "paths back" "$(screen | grep -c '^/tmp/')" 2
+  sleep 7
+  clean; finish
+fi
+
+if [ "$mode" != false ] && begin "mode: scrolled page" 0.28; then
+  T send -s "$S" -b "$B" "sh -c 'clear; seq 1 300 | sed s,^,/tmp/row-,'"; T send-key -s "$S" -b "$B" enter; sleep 1.5
+  rows=$(T block call -s "$S" -b "$B" size '{}' | jq -r .rows)
+  seq 60 $((59 + rows)) | sed s,^,/tmp/row-, > "$dir/view"
+  vt > "$dir/vt.before"
+  mtrigger "$B" view_file="$dir/view"
+  line=$(screen | grep '^[a-z]*mp/row-70$' | head -1)
+  case "$line" in ?tmp/row-70) hint=$(printf %s "$line" | cut -c1) ;; *) hint=$(printf %s "$line" | cut -c1-2) ;; esac
+  expect "a hint on a row of the page" "$(printf %s "$hint" | grep -c '^[a-z][a-z]*$')" 1
+  for k in $(printf %s "$hint" | sed 's/./& /g'); do hkey key="$k"; done
+  expect "copied" "$(cat "$dir/copied" 2>/dev/null)" /tmp/row-70
+  clean; unchanged; finish
+fi
+
+if [ "$mode" != false ] && begin "mode: window scope" 0.28; then
+  B2=$(T split -s "$S" -b "$B" --split=below --focus=false --json | jq -r '.block_id // .block_ids[0]')
+  sleep 1.5
+  T send -s "$S" -b "$B2" "clear; printf '/tmp/%s\n' gamma"; T send-key -s "$S" -b "$B2" enter; sleep 1
+  vt > "$dir/vt.before"
+  mtrigger "$B" scope=window
+  L=$(screen "$B2" | grep -o '[a-z]tmp/gamma' | head -1 | cut -c1)
+  hkey key="$L"
+  expect "both panes hinted" "$(jq -r .panes "$dir/trigger.out")" 2
+  expect "copied from the second pane" "$(cat "$dir/copied" 2>/dev/null)" /tmp/gamma
+  expect "second pane restored" "$(screen "$B2" | grep -c '^/tmp/gamma')" 1
+  clean; unchanged; finish
+fi
+
+if [ "$mode" != false ] && begin "mode: ten triggers" 0.28; then
+  # Each trigger toggles: five runs opened and closed.
+  for n in 1 2 3 4 5 6 7 8 9 10; do mtrigger "$B"; done
+  expect "the last trigger closed" "$(result)" '{"closed":1}'
   clean; unchanged; finish
 fi
 

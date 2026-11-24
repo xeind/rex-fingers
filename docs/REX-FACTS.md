@@ -317,6 +317,69 @@ owner is the foreground program.** With the reader's title written
 0.3 s after its start, the app showed the box as `fingers` (the owner,
 15:53).
 
+**A key mode turns on in a host's tab when the app is asked through
+this machine's server, and not through the host's.** With the app on a
+session of the host: `rex -C colter do client.mode.enter name=resize`
+succeeded and `client.mode.exit` then worked once, as on a local tab.
+`rex -S cordovan -C colter do client.mode.enter name=resize` also
+returned without an error, but `client.mode.exit` after it failed with
+"isn't available here right now": no mode was on. An action run from a
+key in a host's tab sends its queued client actions by way of the host,
+which explains the mode that did not turn on in the morning. The docs
+say a device follows its home server for shortcuts. Whether a key bound
+in the mode then runs its action in a host's tab was not tried; it
+needs a real key press. Nothing uses this yet: with it, a run on a host
+needs no reader and no live action.
+
+**The app turns on a key mode only after its own reload.** A mode
+added to the config and loaded with `rex config reload` was in `rex
+keymap`, with its bindings, and the app's new key bindings worked; yet
+`client.mode.enter` with its name turned nothing on, as with a name
+that does not exist. Seven modes were tried: bound to app actions or to
+config actions, exclusive or not, with and without a key bound to
+`client.mode.enter`. Only `resize`, in the config since the app
+started, turned on. After `rex -C colter do client.config.reload`, the
+app's own action, every one of them did. So after a change to the
+modes, reload from the app. This, and not only the route through the
+host, kept the morning's `fingers` mode off. Tested 2026-11-24, app
+snapshot 2104.
+
+**The app shows a panel for an active key mode, one row for each of
+its bindings, and no setting hides it.** With `rex_fingers` on, 69
+bindings, it covered a third of the window (the owner's screenshot,
+17:41), with "Show key sequence hints" off (`defaults read
+com.superlogical.rex`: `Workspace.showsKeySequenceHints = 0`). In that
+mode, entered through this machine's server, the keys ran their config
+action in a host's tab: Escape and the trigger closed a run. The owner
+turned the mode down for the panel; it is `host_keys = "mode"`.
+
+**Copy mode shows what it copies, with the copy animation off too.**
+`pane.copy_mode.copy_to_line_end` at the top, the middle, and the last
+row of a pane, 12 steps in 0.6 s through `client.perform`, gave the
+three rows with no selection made. The owner saw the three rows
+highlighted, and again with `client.setting.terminal.selection.
+play_animation_on_copy` set to false. So no copy of the visible rows is
+unseen, and Rex reports the scroll position in no other way.
+
+**A program the server starts for an action from a key has no `rex` on
+its `PATH`.** `rex-fingers mode` failed with `exec: "rex": executable
+file not found in $PATH` on every run from the app (17:32), and worked
+from a shell. Used by `binary` in `internal/rexcli`, which looks in
+`REX_BIN_DIR` and the places Rex installs it.
+
+**`client.set_script` is refused from an action the palette runs too.**
+With `ctx.origin` `palette`, on a host's tab, the call failed twice
+with the same words as from a key: "a key handler cannot replace the
+script of the client whose key it is handling" (17:49). So the app's
+script on a host cannot be set from the config at all, and the hint
+letters cannot be function bindings there.
+
+**`rex.ui.input` and `rex.ui.pick` wait without holding up keys or
+other actions, and the wait does not count toward the action's 30
+seconds**, by the Rex docs (`customize/actions`). The command palette
+shows the question, and the answer needs Return. Read 2026-11-24, not
+tested.
+
 **The app stopped answering twice more, each time in the second it
 loaded this machine's session.** At 15:46:43 and 15:53:14, 2 and 11 s
 into a run on the host, it sent `data.connect` and `block.method` for a
@@ -325,6 +388,62 @@ termination requested" 6 and 11 s later and a new process started
 within a second. At 15:53:24 the run failed first, with "the run on the
 host ended without an answer". No crash report. That makes five times
 with the same order of events.
+
+The facts below were tested 2026-11-24 in the evening: CLI and servers
+`0.1.0-preview.22`, app snapshot 2104, a throwaway server on this
+machine, and the Ubuntu host. `host_keys = "substitute"` is built on
+them; the tests in the app were made with a script that showed a
+stand-in block, before that option existed.
+
+**`client.set_script` is refused by its name, on every route.** A
+config action got the same words from `rex.call` and from
+`rex.server(NAME).call`, with `server` set on the `client.action`
+request and without, in 29 ms and with no call sent to the other
+server.
+
+**A block can take a pane's place, and the pane can leave the window
+and come back.** `session.swap_blocks` needs both blocks in a window. A
+new block in a small float, swapped with a tiled pane, took the pane's
+place and kept the focus it had; the pane went to the float. No split
+changed. `session.detach_block` on the pane then closed the float, and
+the pane ran on, detached: it took typed text and printed. To come
+back: a second small float with a dummy block, `session.move_block` of
+the pane beside the dummy, `swap_blocks` with the stand-in, and
+`session.close_layer`. The pane's VT was the same before and after. A
+key written to the focused block reached the stand-in and not the pane.
+
+**A block's size follows its owner.** A `rex do` script that called
+`session.own_block` with `take` for the pane and the stand-in, and then
+the terminal's `resize`, kept both at the pane's 94 by 64 while the app
+asked 1 by 1 for the one in the small float. After
+`session.disown_block` the app owned the pane again, at 94 by 64. The
+terminal's `size` lists each client's last request under `desired`,
+with a time, and only while that client is connected: a request made
+with `rex block call` was gone from the list at once. A block with no
+owner took that request's size. Used by `asked` and `substitute_turn`
+in `agent.lua`.
+
+**The app loads a new block of the host in about 1.3 seconds.** That is
+the time from `session.new_layer`, called on the host, to the app's
+first size request for the block: 1286 and 1305 ms for a new block, 1358
+and 1315 ms for a detached pane placed again. A call from this machine
+to that host took 170 to 230 ms. A stand-in swapped into the pane's
+place 30 ms after it was made showed an empty pane first, and then its
+frame (the owner). Held in its small float until the app had asked a
+size, and 150 ms more, it showed no empty pane; the float was on screen
+for 1.5 s at each end, and the owner called that acceptable.
+
+**A real key press in the app reached the stand-in**, 2.3 s after the
+swap, and did not reach the detached pane. The script on the host had
+set the focus; no call went through the app.
+
+**A stopped program still takes the first key from its tty.** On this
+Mac, with every process on a pane's tty stopped by `SIGSTOP` and the
+tty set raw, a `dd` on the tty read `bc` of `abc` and `e` of `de`: zsh,
+stopped in its read at the prompt, got `a` and `d` when it continued.
+With `cat` in the foreground and the tty cooked before the stop, `dd`
+read nothing. With `sleep` in the foreground it read every key. So the
+pane's own tty cannot be the key reader. Not tried on Linux.
 
 ## The clipboard
 

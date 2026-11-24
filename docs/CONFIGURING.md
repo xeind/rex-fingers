@@ -13,6 +13,9 @@ about ten minutes.
 | No key from the plugin | `key = false`, then `rex.bind("alt+f", "rex_fingers")` in your own bindings |
 | Hints in a floating pane that never writes to your pane | `overlay = "float"`. It hides two rows. |
 | Hints on the rows the focused pane is scrolled to | `follow_scroll = true`, with `overlay = "pane"`. The cost: copy mode flashes, the clipboard is saved and restored as text, and the server must run on the app's machine. |
+| The same on a pane of a Rex host | `host_follow_scroll = true`. The cost: the selection shows over the page for about a second, the hints come about 1.4 s later, and the app must allow remote control. |
+| The small pane only for a second at each end of a run on a Rex host | `host_keys = "substitute"`. A trial: Rex for Mac snapshot 2107 ended itself on a key press with it. |
+| No small pane at all during a run on a Rex host | `host_keys = "mode"`. The cost: the app shows a panel that lists every key of the mode. Reload from the app after you set it, with `client.config.reload`; the app must allow remote control. |
 | Other hint letters | `keyboard_layout = "colemak-homerow"`, from `rex-fingers layouts`; or `alphabet = "asdfghjkl"`, which wins over the layout |
 | Hint on the other end of a match | `hint_position = "right"` or `"gutter"` |
 | Other colors | `hint_style` and `highlight_style`, SGR with palette slots such as `"1;38;5;0;48;5;13"`. Use slots, never hex, so the theme applies. |

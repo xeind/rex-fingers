@@ -64,9 +64,13 @@ the host's speed or from the owner's `setup` options.
    config action at a time, and the run's action lives for the whole
    run. Escape closes. By design, for now.
 
-Faults 2 and 3 need the action to end once the hints are up. Two ways to
-do that failed on this build: a script pushed to the host, and a key
-mode. Both are in HISTORY.md. A draft of what to ask the Rex developers
+Faults 2 and 3 need the action to end once the hints are up. `host_keys
+= "mode"` does that: built and tested 2026-11-24, and in the app the
+trigger and Escape closed a run. It is off by default, since the app
+shows a panel of the mode's 69 keys over the pane and the owner turned
+that down. With it, leaving the tab during a run was not tried. A
+script pushed to the host failed from a key and from the palette; that
+is in HISTORY.md and REX-FACTS.md. A draft of what to ask the Rex developers
 is in [REX-REPORT-DRAFT.md](REX-REPORT-DRAFT.md); it was not sent.
 
 ## Review findings, from reading the code
@@ -90,12 +94,55 @@ a host; the first letter of a two-letter hint changes nothing on screen;
 
 ## How to carry on
 
-1. End the action once the hints are up; that is what faults 2 and 3
-   need. A way not yet built: the agent finishes a `:copy:` pick by
-   itself, with OSC 52 into the pane's tty, which reached the Mac's
-   clipboard on 2026-11-24 (REX-FACTS.md). Picks that need this machine,
-   such as a URL to open or a `copy_command`, still need an answer here.
+1. When a Rex build lets a key mode hide its panel, or lets a config
+   load a client script on a host, make `host_keys = "mode"` the
+   default or bind the keys there: either ends faults 2 and 3 with
+   nothing on screen. Recheck both in REX-FACTS.md on a new build.
    A run that types the letter into the shell reopens fault 1.
+   A scrolled page on a host, `host_follow_scroll`, shows the app's
+   selection; copying one row at a time showed a highlight too.
+   A third way is built since 2026-11-24, off unless set: `host_keys
+   = "substitute"`. **It failed its first tries in the app.** At 20:00
+   and 20:02, on app snapshot 2107, which the app had updated to at
+   19:59, the owner pressed the trigger and then a hint letter on a
+   pane of the host: the hints showed, the owner saw no FINGERS box,
+   and the app logged "Application termination requested" and started
+   again, with no crash report, as in fault 2. At 20:02:11, three
+   seconds before, it loaded the panes of a local session. The run had
+   been up for ten seconds and its agent had seen no key. With
+   `host_keys = "reader"` on the same build, minutes later, a pick
+   worked. The demo script of the afternoon still worked on 2107 at 20:29:
+   the swap, a key into the stand-in, the pane back. So the build
+   failed, not the swap. One cause was found at 20:36 and fixed: the
+   `tty` of Ubuntu 26.04 prints the path with no newline, so the agent
+   never found the first line of the key file, read no key, and never
+   moved the substitute. A trace of two runs showed that: no step and
+   no key in 10 and 14 seconds (`touch /tmp/rex-fingers-trace` on the
+   host turns the trace on). A second cause holds for the reader too, on app snapshot 2107.
+   In six runs with `host_keys = "reader"` between 20:39:19 and
+   20:39:51 the pick was made, and `/tmp/alpha` was on the clipboard;
+   then the host's log has `client.key` for the reader's block with
+   404, a second after the frames were sent, and the app's connection
+   to the host ended. The app sends one more key event after the key
+   that picks, the reader was closed by then, and this build does not
+   survive the 404. The agent now gives the focus back at once and
+   closes the reader 0.8 s after its report (`linger_reader`), and the
+   plugin answers the report with `BYE`. The plugin's own reader, for a
+   host without the agent, still closes at the pick. **No try in the
+   app was made after these two fixes.** A block the agent makes takes the focused pane's
+   place with `session.swap_blocks`, shows the frame, and reads the
+   keys; the pane waits detached and comes back at the end. No key
+   panel shows, and a small float shows only while the app loads a
+   block, about 1.3 s on the Ubuntu host at each end. The owner saw a
+   script do this in the app, pressed a key into the block, and called
+   it "a lot better". DESIGN.md has the steps and REX-FACTS.md the
+   calls and the times. `scripts/test_host_pane.sh` passes its cases
+   named `substitute:`. **A run of the plugin itself, by a key press in
+   the app, is not yet made.** Not tested either: a pane in a floating
+   layer, and `host_follow_scroll` with it. DESIGN.md lists what it
+   costs and does not guard. It does not
+   end the run's action early, so faults 2 and 3 stay until the agent
+   finishes a pick by itself.
 2. To see what the app did, read its log: `log show --predicate
    'subsystem == "com.superlogical.rex"'` for the minute of the run. The
    server's own log records an action only when it fails.

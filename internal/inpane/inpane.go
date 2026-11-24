@@ -152,3 +152,20 @@ printf ` + ReaderMark + `
 exec hexdump -v -e '1/1 "%02x\n"'`
 	return []string{"sh", "-c", script, "sh", strconv.Itoa(lifetime)}
 }
+
+// SubstituteCommand is the argv of the key reader that takes a pane's
+// place, for a pane on another machine. The caller appends the path of a
+// file. The program sets the terminal raw, writes the terminal's path
+// and a newline to the file, and then appends each byte it reads, one
+// write a byte. The newline comes from printf: the tty of Ubuntu 26.04
+// printed the path without one, and the agent then never found the end
+// of the first line (2026-11-24). Its screen stays free for the frame,
+// which the agent writes into that terminal. It sets the title and ends itself as the
+// reader does. It needs only sh, stty, tty, sleep, and dd.
+func SubstituteCommand(lifetime int) []string {
+	script := `stty raw -echo
+printf '%s\n' "$(tty)" > "$2"
+(sleep 0.3; printf '\033]2;` + ReaderTitle + `\007' >&2; exec 2>/dev/null; sleep "$1"; kill $$) >/dev/null &
+exec dd bs=1 2>/dev/null >> "$2"`
+	return []string{"sh", "-c", script, "sh", strconv.Itoa(lifetime)}
+}

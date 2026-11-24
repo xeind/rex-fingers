@@ -126,6 +126,8 @@ fingers.setup{
   dim = true,                     -- dim everything that is not a match
   flash = false,                  -- show the pick in reverse video for 150 ms
   follow_scroll = false,          -- experimental: hint the rows the focused pane is scrolled to
+  host_follow_scroll = false,     -- experimental: the same on a pane of a Rex host; the selection shows for a second
+  host_keys = "reader",           -- on a Rex host: "reader" reads the keys in a small pane, "substitute" in a pane that takes the pane's place, "mode" in a key mode
 }
 ```
 
@@ -163,10 +165,20 @@ option.
   on the tab while the hints are up: the app has frozen during a run,
   each time as it loaded another session's panes. A small box named
   `fingers` shows at the pane's top right corner while the hints are
-  up: it reads the keys. The first letter of a two-letter hint changes nothing on screen.
-  `overlay = "float"` does not reach a host's pane. `follow_scroll`
-  does, for the focused pane: the hints then take about 1.4 s longer,
-  and the app must allow remote control. `:open:` and `:reveal:` copy a path. The host needs `sh`, `stty`,
+  up: it reads the keys. `host_keys = "substitute"` is a trial: the box
+  says FINGERS, and once the app has loaded it, about a second on a
+  host 200 ms away, it takes the pane's own place with the same hints
+  and is gone until the pick, when it shows for another second. Rex for
+  Mac snapshot 2107 ended itself on a key press with it, so it is off
+  unless set. `host_keys = "mode"` reads the keys in a key mode
+  of the app instead: no box, no key held up, and the trigger closes
+  the hints, but the app shows a panel that lists every key of the
+  mode, and it must allow remote control. The first letter of a two-letter hint changes nothing on screen.
+  `overlay = "float"` and `follow_scroll` do not reach a host's pane.
+  `host_follow_scroll = true` hints the page the focused pane is
+  scrolled to: the copy-mode selection shows for about a second, the
+  hints take about 1.4 s longer, and the app must allow remote control.
+  `:open:` and `:reveal:` copy a path. The host needs `sh`, `stty`,
   `ps`, `sleep`, `tty`, and `hexdump`. A host whose panes have no `rex` of their own
   takes about 2.3 s to the hints and 1 s for a pick, and needs `cat`
   too.

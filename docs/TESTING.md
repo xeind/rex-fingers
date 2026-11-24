@@ -53,7 +53,14 @@ scripts/test_host_pane.sh killed`.
 The cases run through the agent, which the test server's own `rex`
 runs. `TEST_AGENT=false sh scripts/test_host_pane.sh` runs them with the
 plugin's reader and writer, as on a host whose blocks have no `rex`. Run
-both after a change to `host_run`.
+both after a change to `host_run`. The cases named `substitute:` have a
+script ask a size for the reader, as the app does once it has loaded a
+block; the reader then takes the pane's place. Without that, as in
+every other case, it stays a small float. The cases named `mode:` run
+`host_keys = "mode"` with `keys=mode` on the call: there is no app, so
+no mode is entered, and each key is a call of `rex_fingers_host_key`.
+What the app does with the mode, its panel and its reload, needs a key
+press in the app.
 
 To time a real host without the app, load the plugin into a `rex do`
 script and send its calls there: `rex -S HOST do SCRIPT -s SESSION -b

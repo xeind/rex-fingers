@@ -3,6 +3,7 @@ package inpane
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -73,6 +74,26 @@ func TestReaderPrintsKeysAsHex(t *testing.T) {
 	}
 	if want := ReaderMark + "61\n53\n1b\n"; string(out) != want {
 		t.Fatalf("got %q, want %q", out, want)
+	}
+}
+
+// The substitute writes a first line, its terminal's path, and then each
+// byte as it is. Without a terminal that line says so.
+func TestSubstituteWritesKeysToItsFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "keys")
+	argv := append(SubstituteCommand(5), file)
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Stdin = strings.NewReader("aS\x1b")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("substitute: %v", err)
+	}
+	got, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, keys, found := strings.Cut(string(got), "\n")
+	if !found || keys != "aS\x1b" {
+		t.Fatalf("got %q, want a first line and then %q", got, "aS\x1b")
 	}
 }
 

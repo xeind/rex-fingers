@@ -125,6 +125,13 @@ failed. The host's keymap is empty, and the likely cause is that the app
 looks for the mode there; that was not proven. [REX-FACTS.md](REX-FACTS.md)
 has the evidence. The reader came back the same day.
 
+Later that day the cause was found: the app knows a new mode only after
+its own reload, and it must be asked through this machine's server. The
+mode then worked, and it is in the code as `host_keys = "mode"`, which
+tells the agent each key through a hidden reader block. The owner saw
+the app's panel, 69 rows over the pane, and kept the reader as the
+default.
+
 ## The align option
 
 `align` chose which two rows a float hides, top or bottom. It was cut on

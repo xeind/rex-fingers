@@ -311,7 +311,8 @@ cleanup of the action's own can be counted on:
   closes the writers, each step under `pcall`, also after an error. That
   order is what the user waits for.
 - The reader ends itself after 20 seconds (`reader_life`), by a `kill`
-  in its own command, and the focus returns to the pane.
+  in its own command, and the focus returns to the pane. A substitute
+  does not: its block stays, as said above.
 - Every trigger first closes the readers it finds in the session, and
   the writers too when one can be left: on a session's first run since
   the config loaded, after a run that died, and when a reader was found.
@@ -341,7 +342,10 @@ a longer output is read from `total` minus that with `blob_read`. Each
 row of the VT starts with its own SGR reset, so the rows draw the same
 without those above.
 
-`follow_scroll` on a host's pane takes another way than on a local
+`follow_scroll` does not reach a host's pane; `host_follow_scroll =
+true` does, and is off unless set, since the owner disliked what it
+shows: the app's selection over the whole page for about a second. It
+takes another way than on a local
 one, where the app's copies are queued and run once the action has
 returned: on a host the action lives until the pick. Before the agent
 starts, the plugin runs `rex-fingers view --client ID`. The program
@@ -355,7 +359,94 @@ finds the page and paints it on the alternate screen, as for a local
 pane. A page not found, or more than 300 KB of VT above the last row,
 is left: the live screen is hinted. Only the focused pane is followed;
 copy mode acts on that one. Without the agent there is no
-`follow_scroll` on a host. `:open:` and `:reveal:` copy a path, as
+`host_follow_scroll`.
+
+**The keys in a substitute pane: `host_keys = "substitute"`.** Off
+unless set, and with the agent only. HOST-PANES-STATUS.md says what
+happened in the app. The reader is the same small float with
+the focus, but its program is `inpane.SubstituteCommand`: it writes its
+terminal's path and then each key to a file the agent made with
+`mktemp` on the host, so its screen stays free. The hints are painted
+into the pane at once, as always. Then `substitute_turn` in `agent.lua`
+moves the substitute toward the pane's place, one step a turn of the
+key loop:
+
+1. The agent takes ownership of the substitute and the pane
+   (`session.own_block`) and gives both the pane's size. A block's size
+   follows its owner, so the app's request of 1 by 1 for a block in the
+   small float changes nothing.
+2. It writes the pane's frame into the substitute's terminal, with the
+   label FINGERS at the top left, which is what the small float shows.
+3. It waits until another client, the app, has asked a size for the
+   substitute: the app has loaded the block then. A block swapped into
+   view before that shows as an empty pane for about 1.3 s.
+4. 160 ms later it writes the frame again without the label, sets the
+   pane's title, labels the block `fingers-substitute:` and the pane's
+   ID, swaps the two (`session.swap_blocks`), and detaches the pane. The
+   small float closes with that. The substitute now stands in the
+   pane's place with the focus, and the pane runs on out of the window.
+
+A pick before step 4 ends the run as with the reader. After it, the
+agent restores the pane's terminal, reports the pick with `returning`,
+and the plugin copies at once and leaves the agent's block alone. The
+agent draws the pane's screen as it is now into the substitute, and
+`give_back` returns the pane: a dummy block in a small float, the pane
+beside it (`session.move_block` places a detached block only in a new
+split), a wait until the app has asked a size for the pane again, the
+swap, and the close of the float. Keys typed in that wait go to the
+pane through the terminal's `write`. Then the agent gives up the pane's
+ownership and ends. For a pane that wrote during the run, the agent
+first waits for the plugin's rows and `BYE`, which the plugin then
+sends also when it has no rows.
+
+A run that died with the substitute in place leaves the pane out of
+its window. The next trigger's agent finds the label in `sweep` and
+calls `give_back` first, from whichever step the run stopped at. The
+substitute's block stays when its program ends, so its label is not
+lost. Only the focused pane gets a substitute; the other panes of a
+window run are painted as before.
+
+What it costs and does not guard:
+
+- The key file is on the host, in its temp directory, and holds the
+  keys typed during the run. The agent removes it at the end of a run;
+  a run that died leaves it.
+- A substitute whose agent died does not close by itself at 20
+  seconds, as the reader's float does: its program ends, the block
+  stays and keeps the focus until the next trigger.
+- A substitute closed by hand while the pane is detached leaves the
+  pane running and out of every window, with no label that names it.
+  `rex block ls` shows it as detached, and `session.move_block` places
+  it.
+- A trigger in the 1.5 s of the pane's way back arrives on the
+  substitute and is dropped.
+- A zoomed pane loses its zoom, as with the reader: Rex ends a zoom
+  when the focus moves to another block of the window, a float too
+  (2026-11-24).
+- Not tested: `host_follow_scroll`, where the app may not keep the
+  scroll position of a pane that left the window, and a pane in a
+  floating layer.
+
+**The keys in a key mode: `host_keys = "mode"`.** Off unless set; the
+floating reader is described below. Before the
+agent starts, the plugin runs `rex-fingers mode --client ID --on --name
+rex_fingers`, which asks the app, on this machine's server, to enter
+that mode. The agent gets `keys = "hidden"`: its reader is a hidden
+block, no pane opens, and the focus stays where it is. `agent_run`
+sends the frames, keeps the run in `host_modes`, and returns, so no
+action is alive while the hints are up. Each hint key is bound in the
+mode to the action `rex_fingers_host_key`, which writes the key's byte
+to the hidden reader. On the last key of a hint, and on a key that
+cancels, it waits for the agent's answer and runs `press` or `restore`
+here, as the end of a reader run does, and then `rex-fingers mode
+--off`. The mode is exclusive: a key it does not bind does nothing.
+Escape, `q`, Space, Ctrl+C, and the trigger keys close the run. `mode
+--on` starts a copy of the program in the background that leaves the
+mode a second after the run's limit, when no key came. A mode that
+cannot be entered, as with remote control off, leaves the run to the
+reader. The costs: the app shows a panel with a row for each of the
+mode's keys, which no setting hides, and it knows a new mode only after
+its own reload (REX-FACTS.md). `:open:` and `:reveal:` copy a path, as
 below.
 
 ## Paths on another machine

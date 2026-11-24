@@ -25,7 +25,7 @@ local terminal = "com.superlogical.terminal"
 -- The protocol this plugin needs from the program: `rex-fingers protocol`
 -- prints the one the binary speaks. A binary built before the plugin was
 -- updated rejects the flags it does not know, so setup warns.
-local protocol = 6
+local protocol = 7
 -- The protocol the configured binary reported, read by setup. A flag it
 -- does not know is not sent; without a check it is taken to be current.
 local program_protocol = protocol
@@ -83,6 +83,19 @@ local defaults = {
   -- trigger has the app copy the visible rows in copy mode: copy mode
   -- flashes, and the clipboard is saved and put back, text only.
   follow_scroll = false,
+  -- The same on a pane of a Rex host, off unless set. There the app is
+  -- asked for each copy-mode step in turn: the selection shows for about
+  -- a second, and the hints come about 1.4 s later.
+  host_follow_scroll = false,
+  -- How a run on a pane of a Rex host reads the hint keys. "reader"
+  -- opens a small floating pane on the host that takes the focus.
+  -- "substitute" opens the same pane, and once the app has loaded it,
+  -- it takes the pane's own place with the same hints, so the small
+  -- pane shows only for a second or so at each end of a run. "mode"
+  -- turns on a key mode of the app, rex_fingers, for the run: no pane,
+  -- but the app shows a panel that lists every key of the mode. The app
+  -- must allow remote control, or the run uses "reader".
+  host_keys = "reader",
 }
 
 -- rect_of walks a window's layout tree to the block and returns its
@@ -729,6 +742,9 @@ function M.setup(user)
   if opts.overlay ~= "float" and opts.overlay ~= "pane" then
     error("rex-fingers: overlay must be \"float\" or \"pane\"", 0)
   end
+  if opts.host_keys ~= "mode" and opts.host_keys ~= "reader" and opts.host_keys ~= "substitute" then
+    error("rex-fingers: host_keys must be \"mode\", \"reader\", or \"substitute\"", 0)
+  end
   -- A binary older than the plugin fails on flags it does not know, on
   -- the first key, with no hint why. Say it once, when the config loads.
   -- Without an absolute binary the PATH here may not be the one the runs
@@ -801,6 +817,9 @@ function M.setup(user)
       alt_action = "string?",
       copy_command = "string?",
       scope = "string?",
+      -- "mode", "reader", or "substitute": how a run on a host reads its
+      -- keys, for a test; "mode" then runs with no app.
+      keys = "string?",
       follow_scroll = "string?",
       -- "false" runs a pane of a Rex host without the agent, for a test.
       agent = "string?",
@@ -973,6 +992,28 @@ function M.setup(user)
   -- Readers of runs that ended. The app queues a trigger pressed during
   -- a run and sends it after the run, with the closed reader as its block.
   local closed_readers = {}
+  -- Runs whose keys come from the key mode, per session; see agent_run.
+  local host_modes = {}
+  local host_mode = "rex_fingers"
+  -- mode_off leaves the key mode. token names the file that tells the
+  -- program's background copy the run is over.
+  local function mode_off(client, token)
+    if not client then return end
+    local a = { binary(opts), "mode", "--client", client, "--off" }
+    if token then a[#a + 1], a[#a + 2] = "--token", token end
+    local ok, err = exec(a)
+    if not ok then rex.log("warn", "Fingers: leaving the key mode: " .. tostring(err)) end
+  end
+  -- end_mode ends the run kept for a session, with a key or none.
+  local function end_mode(sid, byte)
+    local m = host_modes[sid]
+    if not m then return nil end
+    host_modes[sid] = nil
+    local ok, result = pcall(m.finish, byte)
+    mode_off(m.client, m.token)
+    if not ok then error(result, 0) end
+    return result
+  end
   -- Sessions whose leftover writers were looked for since the config
   -- loaded. A writer is hidden, so finding one costs a round trip.
   local swept = {}
@@ -1169,7 +1210,12 @@ function M.setup(user)
 
   -- agent_run returns the run's result, or nil when the host has no
   -- agent and the caller must run the reader and the writer.
-  local function agent_run(ctx, args, scope, host)
+  --
+  -- With mode, the hint keys come from a key mode of the app, bound to
+  -- rex_fingers_host_key below. The agent then opens no pane: its reader
+  -- is a hidden block, and that action writes each key to it. The run is
+  -- kept in host_modes, and this action returns once the hints are up.
+  local function agent_run(ctx, args, scope, host, mode)
     local sid = ctx.session_id
     local command = agent_command()
     local argv = {}
@@ -1179,8 +1225,8 @@ function M.setup(user)
     -- The rows a scrolled pane shows. The agent reads the pane's output
     -- down from that page, and the program draws the hints on it.
     local view
-    local follow = opts.follow_scroll and ctx.origin ~= "api" and ctx.origin ~= "cli"
-    if args.follow_scroll == "true" then follow = opts.follow_scroll end
+    local follow = opts.host_follow_scroll and ctx.origin ~= "api" and ctx.origin ~= "cli"
+    if args.follow_scroll == "true" then follow = opts.host_follow_scroll end
     if args.follow_scroll == "false" then follow = false end
     if follow and not args.view_file and program_protocol >= 6 then
       local vok, v = pcall(host_view, ctx)
@@ -1193,7 +1239,12 @@ function M.setup(user)
         vf:close()
       end
     end
-    argv[#argv + 1] = rex.json.encode({ pane = ctx.block_id, scope = scope, limit = host_limit, reader = reader_command(), view = view })
+    -- The substitute, unless the call names another way to read the keys.
+    local keys = mode and "hidden" or nil
+    if not keys and (args.keys == "substitute" or (args.keys == nil and opts.host_keys == "substitute")) then
+      keys = "substitute"
+    end
+    argv[#argv + 1] = rex.json.encode({ pane = ctx.block_id, scope = scope, limit = host_limit, reader = reader_command(), view = view, keys = keys })
     local b, err = rex.call("session.new_block", {
       session_id = sid,
       flavor = terminal .. ".shell",
@@ -1215,6 +1266,16 @@ function M.setup(user)
     -- panes to put back. It then ends itself, and its block with it: a
     -- close could come before it has written.
     local agent_ends_itself = false
+    -- conclude waits for the agent's answer and ends the run; set once
+    -- the frames are sent.
+    local conclude
+    local waiting = {}
+    local function clear()
+      if not keep then
+        for _, path in ipairs(files) do os.remove(path) end
+      end
+      if not agent_ends_itself then pcall(rex.call, "block.close", { session_id = sid, block_id = block }) end
+    end
     local ok, result = pcall(function()
       -- The panes, as the agent read them.
       local gathered
@@ -1285,18 +1346,12 @@ function M.setup(user)
       local data = f:read("*a")
       f:close()
       agent_send(sid, block, "RUN " .. #data .. "\n" .. data)
-      -- The agent gave the reader the session's focus from its own
-      -- connection, and the app has still sent the hint letters to the
-      -- pane, on the first run in a new pane. This call goes through the
-      -- app, as the reader's did when this plugin opened it, so the app
-      -- makes the change itself. The hints are up by now; it adds no wait
-      -- before them. A reader already closed makes it fail, which is fine.
-      rex.session.focus_block{ session_id = sid, block_id = gathered.reader }
-
+      conclude = function()
       -- The pick, or how the run ended. The agent ends the run by itself
       -- at host_limit.
       local res
       local deadline = os.time() + host_limit + 4
+      if mode then deadline = os.time() + 3 end
       while not res and os.time() < deadline do
         local text = screen()
         if not text then break end
@@ -1316,6 +1371,16 @@ function M.setup(user)
       -- The reader is closed. A trigger pressed during the run arrives
       -- now, with the reader as its block, and starts nothing.
       if res.reader then closed_readers[res.reader] = true end
+      -- A substitute holds the pane's place. The agent puts the pane
+      -- back and then ends itself; a close now would leave the pane out
+      -- of its window.
+      -- The same for a reader, which the agent closes a moment after
+      -- its report. BYE tells the agent that the report was read; for a
+      -- pane that wrote during the run it follows the rows, below.
+      if res.returning then
+        agent_ends_itself = true
+        if not res.dirty then pcall(agent_send, sid, block, "BYE\n") end
+      end
       -- The agent has put the panes back, unless one wrote during the
       -- run. Then it sent each pane's screen as it is now, the program
       -- works out the rows to repaint, and the agent writes them.
@@ -1349,7 +1414,9 @@ function M.setup(user)
             end
           end
         end
-        if sent then pcall(agent_send, sid, block, "BYE\n") end
+        -- An agent with a pane to put back waits for this word before
+        -- it does, also when no pane had rows to repaint.
+        if sent or res.returning then pcall(agent_send, sid, block, "BYE\n") end
       end
       if not out then error(derr, 0) end
       if res.error then error("Fingers: " .. res.error, 0) end
@@ -1360,11 +1427,40 @@ function M.setup(user)
       end
       if out.error then error("Fingers: " .. out.error, 0) end
       return { hints = r.hints, panes = #specs, status = res.status }
+      end
+      if mode then
+        local hints = {}
+        for _, t in ipairs((rex.json.decode(data) or {}).targets or {}) do hints[#hints + 1] = t.hint end
+        waiting = { reader = gathered.reader, hints = hints, typed = "", deadline = os.time() + host_limit }
+        return { hints = r.hints, panes = #specs, keys = "mode" }
+      end
+      -- The agent gave the reader the session's focus from its own
+      -- connection, and the app has still sent the hint letters to the
+      -- pane, on the first run in a new pane. This call goes through the
+      -- app, as the reader's did when this plugin opened it, so the app
+      -- makes the change itself. The hints are up by now; it adds no wait
+      -- before them. A reader already closed makes it fail, which is fine.
+      rex.session.focus_block{ session_id = sid, block_id = gathered.reader }
+      return conclude()
     end)
-    if not keep then
-      for _, path in ipairs(files) do os.remove(path) end
+    if ok and mode and waiting.reader then
+      -- The run goes on without this action. finish ends it: with a
+      -- key, the last of a hint or one that cancels, or with none when
+      -- the run is over its limit.
+      waiting.finish = function(byte)
+        if byte then pcall(rex.block.call, terminal, "write", { session_id = sid, block_id = waiting.reader, data = byte }) end
+        local fok, fres = pcall(conclude)
+        clear()
+        if not fok then error(fres, 0) end
+        return fres
+      end
+      waiting.type = function(byte)
+        rex.block.call(terminal, "write", { session_id = sid, block_id = waiting.reader, data = byte })
+      end
+      host_modes[sid] = waiting
+      return result
     end
-    if not agent_ends_itself then pcall(rex.call, "block.close", { session_id = sid, block_id = block }) end
+    clear()
     if not ok then error(result, 0) end
     return result
   end
@@ -1376,6 +1472,12 @@ function M.setup(user)
     -- during a run waits until the run has ended, and arrives then. In
     -- the app it carries the closed reader as its block. It starts
     -- nothing, or ten fast presses would give ten runs.
+    -- The trigger closes a run whose keys come from the key mode: its
+    -- action has ended, so this one is not held up behind it.
+    if host_modes[sid] then
+      end_mode(sid, "\27")
+      return { closed = 1 }
+    end
     if closed_readers[pane] or host_ended[sid] == started then return { ignored = 1 } end
     -- A binary without --remote would fail at the first draw, with a
     -- usage message.
@@ -1385,8 +1487,35 @@ function M.setup(user)
     -- The agent first. A host without one gets the reader and the writer
     -- below, as does a program too old to make the agent's frames.
     if program_protocol >= 5 and not no_agent[host] and args.agent ~= "false" and not host_runs[sid] then
-      local ok, result = pcall(agent_run, ctx, args, scope, host)
-      host_ended[sid] = os.time()
+      -- The key mode, when the app can be asked for it: a key press has
+      -- an app behind it, rex do from a shell has none. keys = "mode" on
+      -- the call runs without the app, for a test.
+      local mode, client, token = false, nil, nil
+      if program_protocol >= 7 and args.keys ~= "reader" then
+        if args.keys == "mode" then
+          mode = true
+        elseif opts.host_keys == "mode" and ctx.client_id and ctx.origin ~= "api" and ctx.origin ~= "cli" then
+          -- First, so that a key typed before the hints show is taken.
+          local m, merr = exec({ binary(opts), "mode", "--client", ctx.client_id, "--on", "--name", host_mode,
+            "--limit", tostring(host_limit + 1) })
+          if m and m.mode then
+            mode, client, token = true, ctx.client_id, m.token
+          else
+            rex.log("warn", "Fingers: no key mode, using the reader: " .. tostring(merr))
+          end
+        end
+      end
+      local ok, result = pcall(agent_run, ctx, args, scope, host, mode)
+      if mode then
+        local m = host_modes[sid]
+        if m then
+          m.client, m.token = client, token
+        else
+          mode_off(client, token)
+        end
+      end
+      -- A run in the key mode is still up, and the next trigger closes it.
+      if not host_modes[sid] then host_ended[sid] = os.time() end
       if not ok then error(result, 0) end
       if result then return result end
     end
@@ -1458,6 +1587,46 @@ function M.setup(user)
     return result
   end
 
+  -- The hint keys of a run on a host, bound in the key mode. The agent
+  -- reads them from its hidden reader: a letter, a capital for Shift, a
+  -- control byte for Ctrl. Only the last key of a hint and a key that
+  -- cancels wait for the agent's answer; the copy, or whatever the
+  -- action is, then runs here.
+  rex.action{
+    name = "rex_fingers_host_key",
+    title = "Fingers: Hint Key on a Host",
+    args = { key = "string", modifier = "string?" },
+    run = function(ctx, args)
+      local sid = ctx.session_id
+      local m = host_modes[sid]
+      if not m then
+        -- The mode is on with no run here: the user went to another
+        -- session, or the run was lost with the config. End what is up.
+        local ended = 0
+        for other in pairs(host_modes) do
+          pcall(end_mode, other, "\27")
+          ended = ended + 1
+        end
+        if ended == 0 then mode_off(ctx.client_id) end
+        return { ignored = 1 }
+      end
+      if os.time() >= m.deadline then return end_mode(sid) end
+      local key, mod = args.key, args.modifier or "main"
+      if key == "escape" then return end_mode(sid, "\27") end
+      local longer, final, continues = m.typed .. key, false, false
+      for _, hint in ipairs(m.hints) do
+        if hint == longer then final = true elseif hint:sub(1, #longer) == longer then continues = true end
+      end
+      if not final and not continues then return { ignored = 1 } end
+      local byte = key
+      if mod == "shift" then byte = key:upper() elseif mod == "ctrl" then byte = string.char(key:byte() - 96) end
+      if final then return end_mode(sid, byte) end
+      m.typed = longer
+      m.type(byte)
+      return { typed = longer }
+    end,
+  }
+
   -- cancel puts the pane back and takes the key.
   local function cancel(ctx)
     local run = state[ctx.block_id]
@@ -1510,6 +1679,28 @@ function M.setup(user)
   -- program unseen under a scrolled page. Bound, it does not return a
   -- scrolled pane when no run is up.
   for _, key in ipairs({ "escape", "q", "ctrl+c", "space" }) do bind_key(key, cancel) end
+
+  -- The same keys in the key mode of a run on a host. The mode is
+  -- exclusive: a key it does not bind does nothing while the hints are
+  -- up, so none reaches the pane's program. The trigger closes the hints.
+  if opts.host_keys == "mode" then
+    rex.mode(host_mode, { exclusive = true })
+    local function mode_bind(key, name, modifier)
+      rex.bind(host_mode .. "/" .. key, "rex_fingers_host_key", { key = name, modifier = modifier })
+    end
+    for key in ("abcdefghijklmnopqrstuvwxyz"):gmatch(".") do
+      if hinted[key] then
+        for _, m in ipairs(mods) do
+          if m[2] ~= "alt" and not (key == "q" and m[2] == "main") and not (key == "c" and m[2] == "ctrl") then
+            mode_bind(m[1] .. key, key, m[2])
+          end
+        end
+      end
+    end
+    for _, key in ipairs({ "escape", "q", "ctrl+c", "space", opts.key, opts.window_key }) do
+      if key then mode_bind(key, "escape") end
+    end
+  end
   -- Enter stays taken: one that reached the pane would run the prompt.
   bind_key("enter", swallow)
 end

@@ -61,7 +61,8 @@ func version() string {
 //	   command
 //	5  --agent-file, and the agent command
 //	6  the view command, and view in the agent's arguments
-const protocol = 6
+//	7  the mode command, and keys in the agent's arguments
+const protocol = 7
 
 // The special action values, as in tmux-fingers, and :reveal:, which is
 // not in tmux-fingers.
@@ -116,8 +117,14 @@ func Main() {
 		lifetime := fs.Int("lifetime", 20, "")
 		fs.Usage = usage
 		fs.Parse(os.Args[2:])
-		err := reply(map[string]any{"command": inpane.ReaderCommand(*lifetime), "mark": inpane.ReaderMark})
+		err := reply(map[string]any{"command": inpane.ReaderCommand(*lifetime), "mark": inpane.ReaderMark,
+			"substitute": inpane.SubstituteCommand(*lifetime)})
 		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	case "mode":
+		if err := modeCommand(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -156,6 +163,8 @@ func usage() {
        rex-fingers reader [--lifetime SECONDS]
        rex-fingers agent [--lifetime SECONDS]
        rex-fingers view --client ID --out FILE [--wait MILLISECONDS]
+       rex-fingers mode --client ID --on --name NAME [--limit SECONDS]
+       rex-fingers mode --client ID --off [--token FILE]
 
 flags of show:
   --vt-file FILE          the pane's VT capture; read and deleted
