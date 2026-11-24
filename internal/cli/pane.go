@@ -579,6 +579,7 @@ type paneRun struct {
 	begin    *bool
 	recover  *bool
 	await    *int
+	agent    *string
 }
 
 func paneCommand(name string, args []string) error {
@@ -594,6 +595,7 @@ func paneCommand(name string, args []string) error {
 		begin:    fs.Bool("begin", false, ""),
 		recover:  fs.Bool("recover", false, ""),
 		await:    fs.Int("await-views", 0, ""),
+		agent:    fs.String("agent-file", "", ""),
 	}
 	fs.Var(&r.panes, "pane", "")
 	fs.StringVar(&r.single.tty, "tty", "", "")
@@ -807,6 +809,11 @@ func (r paneRun) draw(specs []paneSpec) error {
 		if err := saveAll(specs, ovs, *r.typed); err != nil {
 			return err
 		}
+		if *r.agent != "" {
+			if err := r.writeAgentFile(specs, ovs); err != nil {
+				return err
+			}
+		}
 	} else {
 		// Nothing is painted, so a pane that still showed an old run is
 		// put back here.
@@ -842,6 +849,54 @@ func (r paneRun) draw(specs []paneSpec) error {
 		}
 	}
 	return reply(result)
+}
+
+// writeAgentFile hands a run on another machine to the agent there. It
+// moves the frame draw wrote for each pane out of the pane's file and
+// into one document, with the bytes that put the pane back, every hint,
+// and the action of each modifier. The agent then draws, reads the keys,
+// and restores with no call to this machine. Every pane must be remote.
+func (r paneRun) writeAgentFile(specs []paneSpec, ovs []*ui.Overlay) error {
+	type agentPane struct {
+		Frame   string `json:"frame"`
+		Restore string `json:"restore"`
+	}
+	type agentTarget struct {
+		Hint string `json:"hint"`
+		Pane int    `json:"pane"`
+		Text string `json:"text"`
+	}
+	doc := struct {
+		Panes   []agentPane       `json:"panes"`
+		Targets []agentTarget     `json:"targets"`
+		Actions map[string]string `json:"actions"`
+	}{Actions: map[string]string{}}
+	for i, p := range specs {
+		if !p.remote {
+			return fmt.Errorf("--agent-file needs remote panes")
+		}
+		frame, err := os.ReadFile(p.tty)
+		if err != nil {
+			return err
+		}
+		os.Remove(p.tty)
+		restore := inpane.Restore(p.scr, p.cursor, p.wrap)
+		if p.alt {
+			restore = inpane.RestoreAlt(p.cursor, p.wrap)
+		}
+		doc.Panes = append(doc.Panes, agentPane{Frame: string(frame), Restore: restore})
+		for _, t := range ovs[i].Targets() {
+			doc.Targets = append(doc.Targets, agentTarget{Hint: t.Hint, Pane: i, Text: t.Text})
+		}
+	}
+	for _, m := range []ui.Modifier{ui.Plain, ui.Shift, ui.Ctrl, ui.Alt} {
+		doc.Actions[m.String()] = r.opts.action(m)
+	}
+	data, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(*r.agent, data, 0o600)
 }
 
 func (r paneRun) press(specs []paneSpec) error {

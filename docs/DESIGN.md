@@ -173,8 +173,106 @@ a host; `scripts/test_host_pane.sh` uses that. `overlay = "float"`
 raises an error on a host's pane, since the float would run this
 machine's binary path on the host.
 
-Nothing is installed on the host. A run there, `host_run` in `init.lua`,
-has three parts.
+Nothing is installed on the host. A run there is `host_run` in
+`init.lua`. It tries the agent first.
+
+### The agent
+
+Every Rex call from this machine's action is a round trip to the host,
+and the calls run one after another. So the run moves to the host, where
+they are local. Rex gives every block `REX_BIN_DIR`, the directory of the
+host's own `rex`, and `rex do -e` runs a Lua script with the full API,
+`io`, and `rex.sleep`. The agent is such a script, `agent.lua` in
+`internal/inpane`, embedded in the program. `rex-fingers agent` prints its
+argv (`inpane.AgentCommand`), and the plugin starts it in a hidden block
+on the host (`session.new_block`, label `fingers-agent`) with the address
+of the host's server, the session, and its arguments as JSON. The script
+travels in the argv.
+
+The plugin and the agent talk through the agent's block. The agent prints
+on its screen; the plugin reads that with `format`. The plugin writes to
+the agent's terminal, which is raw; the agent reads that with `io.read`.
+
+1. The agent closes what a dead run left, finds the panes (the window's,
+   for window scope), opens the reader with the focus, and reads each
+   pane: its tty, size, cursor and wrap modes, and the screen rows as VT
+   and as unwrapped text. It prints them as `RXF1<...>`.
+2. The plugin writes them to files and runs `draw --begin --agent-file`.
+   The program writes one JSON document: each pane's frame and the bytes
+   that restore it, every hint with its text, and the action of each
+   modifier. The plugin writes it to the agent as `RUN <bytes>` and the
+   document.
+3. The agent writes each frame into its pane's tty, and reads the
+   reader's screen every 20 ms. On the last letter of a hint it writes
+   the restores, pastes with the terminal's `write` when the action is
+   `:paste:`, closes the reader, focuses the pane, and prints
+   `RXF2<...>`: the hint, the modifier, and how the run ended.
+4. The plugin, which has polled for that, runs `press` with the hint and
+   the modifier, so the copy, the opener, or the action command runs
+   here. Then it closes the agent's block.
+
+That is three round trips before the hints show: start the agent, read
+the panes, write the frames. A pick costs none before the pane is back.
+
+A message of the agent is one word: each byte but letters and digits is
+`%XX`, so the terminal's wrapping and trimming cannot change it. A pane
+that printed during the run cannot take the restore the program made at
+the start. The agent takes each pane's screen 100 ms after the frame and
+again at the end. If they differ, it restores nothing and sends the
+screens with `RXF2`; `press` or `restore` works out the rows from them as
+on a local pane, and the plugin sends the bytes back as `W <pane>
+<bytes>`, then `BYE`. The plugin does not close the agent's block then:
+a close could come before the agent has written, so the agent ends
+itself and its block closes with it.
+
+A plugin that is gone sends nothing: Rex stopped its action, or the app
+no longer passes its calls. So the agent waits 6 seconds for a word, and
+then writes the restores made at the start. They draw over what the pane
+printed since, which is wrong, and less wrong than hint letters left in
+a pane. The wait is a limit on the read: the shell that starts the agent
+gives it the path of its own terminal, and `stty min 0 time 60` on that
+makes `io.read` return nil after 6 seconds. A body is read with no
+limit, since a read that gives up cuts it short. When the plugin got no
+answer at all, it leaves the block to the agent too.
+
+The agent ends the run by itself at `host_limit`, and its shell kills it
+after ten more seconds, so a run whose action Rex stopped still puts the
+pane and the focus back. The next agent closes any reader, writer, or
+agent it finds. A trigger that arrives on a dead run's reader runs on the
+pane that has the focus once that reader is closed.
+
+Two things a local pane has are missing: the first letter of a
+two-letter hint changes nothing on screen, and there is no flash.
+
+The hint letters reached the pane's program, with the hints up, when
+the app's own key focus had not followed the session's to the reader.
+It was seen on the first run in a new pane. Having the agent hand the
+focus to the pane and back to the reader did not cure it. So the plugin
+focuses the reader once more after the frames are sent, with a call
+that goes through the app, as the reader's own did when the plugin
+opened it. The owner then saw the letters pick, 2026-11-24.
+
+One fault remains in the app, with or without the agent; REX-FACTS.md
+has what was seen.
+
+- The app has stopped answering, and has exited, during a run, each time
+  in the second it loaded the panes of another session. That a change of
+  tab or session is the trigger is not proven. The run's action is alive
+  until the pick,
+  and each of its calls to the host goes through the app. A cure needs
+  the action to end once the hints are up, and then another way for the
+  keys and the pick to reach this machine. A key mode was tried for that
+  and did not turn on in a host's tab; HISTORY.md has it.
+
+A host whose blocks have no `rex` prints `RXF0`, and one whose `rex`
+cannot run the script prints an error. The plugin then marks the host
+and runs without the agent, below. The action argument `agent=false`
+does the same for one run; `TEST_AGENT=false` passes it in
+`scripts/test_host_pane.sh`.
+
+### Without the agent
+
+The run has three parts.
 
 **Drawing.** The program runs here with `--remote`: `--tty` names a local
 file, and every write is appended to it. `draw` replies with the argv of
@@ -191,7 +289,8 @@ the flash and the restore would arrive in one write.
 server, and the app sends a host tab's keys to the host's server. So a
 floating pane on the host, the reader (label `fingers-reader`), takes
 the focus and runs `stty raw -echo; hexdump`, which prints each key as
-two hex digits. Its argv is `inpane.ReaderCommand`, which the plugin
+two hex digits. It sets the title `fingers` 0.3 s after its start, so
+that the app does not name the pane `hexdump`. Its argv is `inpane.ReaderCommand`, which the plugin
 reads once from `rex-fingers reader`. The action stays alive: it reads
 the reader's screen,
 and presses each new byte as the key functions do: a letter, a capital
@@ -228,11 +327,19 @@ cleanup of the action's own can be counted on:
   dropped. So the key cannot cancel a run on a host as it does locally.
 
 Three costs remain. Every Rex call is a round trip, about 10 before the
-hints show and 5 for a pick. While the action is alive, the config's Lua
-is held: a key bound to a function waits, in every pane, and is lost
-when the wait passes 5 seconds. And a call to the host that hangs has no
+hints show and 5 for a pick; the agent cuts that to 3 and none. While
+the action is alive, with or without the agent, the config's Lua is
+held: a key bound to a function waits, in every pane, and is lost when
+the wait passes 5 seconds. And a call to the host that hangs has no
 timeout; only Rex's 30 seconds end it. REX-FACTS.md has the
 measurements.
+
+A capture reads only the end of the pane's output, with or without the
+agent. `format` returns the whole scrollback, megabytes on a pane in
+use. `read_format` asks for a first reply as large as the screen needs;
+a longer output is read from `total` minus that with `blob_read`. Each
+row of the VT starts with its own SGR reset, so the rows draw the same
+without those above.
 
 `follow_scroll` is off on a host's pane: its draw runs in the
 background, with no writer. `:open:` and `:reveal:` copy a path, as

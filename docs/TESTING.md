@@ -50,6 +50,18 @@ checks after every case that no reader or writer is left, the focus is
 on the pane, and the pane's VT is as before. It takes a filter: `sh
 scripts/test_host_pane.sh killed`.
 
+The cases run through the agent, which the test server's own `rex`
+runs. `TEST_AGENT=false sh scripts/test_host_pane.sh` runs them with the
+plugin's reader and writer, as on a host whose blocks have no `rex`. Run
+both after a change to `host_run`.
+
+To time a real host without the app, load the plugin into a `rex do`
+script and send its calls there: `rex -S HOST do SCRIPT -s SESSION -b
+PANE`, where the script calls `setup` with a `copy_command` that writes
+to a file, and then `rex.invoke("rex_fingers")`. A second `rex -S HOST
+do` script finds the `fingers-reader` block and types the hint into it
+with the terminal's `write`. REX-FACTS.md has the numbers of 2026-11-24.
+
 It cannot show what the app does: whether the reader is visible, where
 the app's own focus is, and the real round trip. For those, press the
 key in the app on a host's tab. To see what a run holds up meanwhile,

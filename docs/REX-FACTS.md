@@ -23,7 +23,8 @@ build takes part; the app bundle on disk reported build 2033.
 | `sh scripts/test_resources.sh` | passed 17, failed 0 |
 | The float loop of [TESTING.md](TESTING.md), on a server started with `overlay = "float"`, 2026-11-18 | the float opened, `a` copied `/tmp/a`, the float closed |
 | `scripts/smoke_test.sh` in CI, Ubuntu and macOS, 2026-11-18 | passed |
-| `sh scripts/test_host_pane.sh`, nushell 0.116.1, 2026-11-24 | passed 65, failed 0 |
+| `sh scripts/test_host_pane.sh`, nushell 0.116.1, 2026-11-24, at `e3d4898` | passed 65, failed 0 |
+| `sh scripts/test_host_pane.sh`, with the agent, nushell 0.116.1, 2026-11-24 | passed 82, failed 0 |
 
 Cases that fail now and then, each on "pane text unchanged" unless said:
 
@@ -139,6 +140,24 @@ focus. One of 0.001 by 0.001 keeps the focus and reads keys. A block
 with `exit = { on_completion = true }` closes its float when its program
 ends, and the focus returns to the pane under it. Used by `open_reader`.
 
+**Rex gives the focus only to a block placed in a window.**
+`session.focus_block` on a detached block failed with "not found in any
+window" (a throwaway server, 2026-11-24, CLI and server
+`0.1.0-preview.22`). With the two limits above, the key reader cannot be
+hidden: it must be a float on the screen, and the app shows it as a pane
+named after its program, `hexdump`.
+
+**Rex takes the foreground program at the time a title arrives as the
+one that set it.** On the Ubuntu host, `sh -c` that wrote OSC 2 and then
+did `exec hexdump` gave `title` an `owner` named `dash`, with `hexdump`
+in the foreground under the same pid. With the title written 0.3 s
+later by a background subshell, the `owner` was `hexdump`. The API notes
+say to compare the owner's name as well as its pid, so a title whose
+owner has another name may count as stale. Used by
+`inpane.ReaderCommand`. Whether the app then shows the title in place of
+`hexdump` was not seen. Tested 2026-11-24, CLI and servers
+`0.1.0-preview.22`.
+
 **A run on the host, at 280 ms a call:** the reader was up 0.8 s after
 the trigger, the hints showed at 3.0 s, and the pane was back 1.3 s
 after the key. An idle run ended at 16.4 s. That run made 12 calls
@@ -148,6 +167,111 @@ pane back and the reader closed 1.0 s after the key, the action over
 after 3.8 s. The two calls cut are `pwd`, which a host run does not
 need, and `session.list_blocks`, the search for a leftover writer, made
 only on a session's first run and after a run that died.
+
+The facts below were tested 2026-11-24: CLI and servers
+`0.1.0-preview.22`, Rex for Mac snapshot 2104, a throwaway server on
+this machine, and the Ubuntu host.
+
+**Every block has `REX_BIN_DIR`, the directory of its server's `rex`.**
+On the Ubuntu host it was `~/.local/bin`; on a Mac it is inside
+`Rex Server.app` and holds spaces. A hidden block there ran
+`"$REX_BIN_DIR/rex" do -e SCRIPT`: the script was on the screen 110 ms
+after `session.new_block`, and has `io`, `os`, `rex.exec`, `rex.sleep`,
+and the session and block calls. One `rex block call` from a block took
+85 ms on the host; a call inside a running script is local. Used by
+`inpane.AgentCommand`.
+
+**`REX_SERVER` is empty in a block of a server started with
+`--listen`**, and the `rex` in that block then reached the default
+server of the machine. `server.status` lists the server's `listeners`;
+the primary one with transport `unix` has the `endpoint` a program on
+the host uses. Used by `remote_host`, which keeps it in
+`host_endpoints`.
+
+**A script under `rex do` reads its block's terminal with `io.read`.**
+With the terminal raw, a 260 KB message sent with the terminal's
+`write`, escapes and wide characters in it, arrived whole after a line
+that gave its length. 64,000 characters the script printed as one word
+came back whole from `format` with `unwrap`. A float the script opened
+with `session.new_layer` took the focus, and the focus returned to the
+pane when the script closed it.
+
+**`rex do` does not end on SIGTERM while its script waits in
+`io.read`.** The block stayed until SIGKILL. A block with `exit = {
+on_completion = true }` closes when its program ends or is killed, a
+hidden one too.
+
+**A config action cannot push a script to the host.**
+`client.set_script` loads Lua into a server for the calling client, with
+no file there. From a `rex do` script it worked: the pushed script has
+`rex.call`, `rex.block.call`, `rex.session`, and `rex.bind`, no `io`,
+`os`, or `rex.exec`; it took a bound key, and survived
+`server.config_reload`. `rex.action` in it gave the warning "Actions in
+a client script run from a later version of Rex". From a config action
+in the app, on a host's tab, the call failed in 10 ms: "the
+configuration file cannot call client.set_script: a key handler cannot
+replace the script of the client whose key it is handling".
+`server.config_reload` failed too: "a key handler cannot reload the file
+it is running from". A script the CLI pushes belongs to the CLI's
+client, so the app's keys do not reach it.
+
+**`blob_read` returns 48 KiB unless `max_bytes` asks for more.** A 5.4 MB
+VT dump took 125 calls, and 8 with `max_bytes = 983040`. `blob_read`
+takes any `offset`, so the end of a dump is one call: a small `format`
+for the `id` and `total`, then `offset = total - N`. Each row of the VT
+starts with `ESC[0m` and its own colours. One `format` call without
+`max_bytes` fails above 1 MiB with `too_large`. Used by `read_format` in
+`init.lua` and `tail` in `agent.lua`.
+
+**A run on the Ubuntu host through the agent**, measured from two `rex
+do` scripts on this machine, one with the plugin and one that watched
+the pane and typed the hint. A call took 170 to 230 ms. Three runs each:
+
+| | Agent | Reader and writer |
+| --- | --- | --- |
+| Trigger until the hints were seen | 0.77 to 1.03 s | 2.19 to 2.69 s |
+| Key sent until the pane was seen back | 0.44 to 0.46 s | 0.89 to 0.91 s |
+| Key sent until the action was over | 0.58 to 0.63 s | 1.43 to 1.56 s |
+| Whole action | 1.39 to 1.60 s | 3.72 to 4.19 s |
+
+The watcher sees a change one call late, and its key is a call of 220 ms
+itself, so 0.44 s is the least it can report. On the throwaway server,
+with 280 ms added to every call of the plugin and none to the watcher,
+the pane was back 73 to 82 ms after the key. Not measured from the app.
+
+**The app logs to the macOS log under `com.superlogical.rex`.** `log show
+--predicate 'subsystem == "com.superlogical.rex"'` gives its lines by
+category: `Actions` names each queued client action it skipped and the
+config action that asked for it; `Network`, `RexSync`, and `Sizing` name
+blocks it lost. The server's own log records a `client.action` only when
+it fails. Found 2026-11-24, app snapshot 2104.
+
+**A key mode did not turn on in a host's tab.** With `fingers` declared
+in this machine's config and 138 `fingers/` bindings in `rex keymap`, a
+config action run from a key in a host's tab queued `client.mode.enter`.
+No panel showed, and `s` reached the shell. On each of six runs the app
+logged `Skipped client.mode.exit, which rex_fingers asked for: it isn't
+available here`, and nothing about the enter. The host has no config:
+its `rex keymap` is empty, and the app fetched no keymap from it during
+the runs, the last being half an hour before. Whether the app looks for
+the mode in the host's keymap was not proven; a mode entered by its own
+key in a host's tab was not tried. Tested 2026-11-24, app snapshot 2104.
+
+**The app stopped answering three times during a run on the host.** On
+2026-11-24 at 10:48:17, 10:50:05, and 10:57:26 it sent this server no
+`client.reply` from one second on, 9 to 14 s into a run. In that same
+second each time it sent `data.connect` and `block.method` for the two
+panes of a local session, as it does when the user goes to that session.
+The first time it answered again after 21 s, and the action had failed
+at 29.7 s with two calls past their 10 s. The other two times the
+process ended 5 and 7 s later, with exit status 0 and no crash report,
+and a new one started 0.4 s after. Three runs left alone to their 15 s
+did not stop it. The API notes of `client.action` say an app's actions
+and its focus and layout changes run one at a time on its connection,
+and the run's action waits on the app for every call to the host; that
+the two wait on each other is a reading, not a finding. The owner does
+not recall whether they changed tabs. App snapshot 2104; it was not
+tried again on purpose.
 
 **Once, the first key after the app reconnected was typed into the
 shell**, with the hints up: the run lasted its 15 s. Seven seconds

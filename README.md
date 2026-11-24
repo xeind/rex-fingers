@@ -154,14 +154,21 @@ option.
   the pane, but hides its top two rows.
 - No multi-select and no jump mode: Rex cannot move a pane's cursor from
   outside.
-- On a pane of a Rex host, every step is a round trip to the host. At
-  280 ms a trip, the hints show after about 2.3 s and a pick takes about
-  1 s. The hints close by themselves after 15 s. While they are up,
-  other keys this plugin binds wait, in every pane, and may be lost; a
-  second press of the key does nothing, Escape closes. `overlay =
-  "float"` and `follow_scroll` do not reach a host's pane, and `:open:`
-  and `:reveal:` copy a path. Nothing is installed on the host; it needs
-  `sh`, `stty`, `ps`, `cat`, and `hexdump`.
+- On a pane of a Rex host, nothing is installed on the host: its own
+  `rex` runs a script the plugin sends with each run. With 200 ms a
+  round trip, the hints show after about 0.9 s, and the pane is back
+  when the key arrives. The hints close by themselves after 15 s. While
+  they are up, other keys this plugin binds wait, in every pane, and may
+  be lost; a second press of the key does nothing, Escape closes. Stay
+  on the tab while the hints are up: the app has frozen during a run,
+  each time as it loaded another session's panes. A small box named
+  `fingers` shows at the pane's top right corner while the hints are
+  up: it reads the keys. The first letter of a two-letter hint changes nothing on screen.
+  `overlay = "float"` and `follow_scroll` do not reach a host's pane,
+  and `:open:` and `:reveal:` copy a path. The host needs `sh`, `stty`,
+  `ps`, `sleep`, `tty`, and `hexdump`. A host whose panes have no `rex` of their own
+  takes about 2.3 s to the hints and 1 s for a pick, and needs `cat`
+  too.
 - On a pane running `ssh`, `mosh`, or `et`, the paths on screen are the
   other machine's: `:open:` and `:reveal:` copy a path instead. URLs
   open as usual.

@@ -14,9 +14,10 @@
 -- cancelled. There is no key mode, so Rex for Mac shows no key list.
 --
 -- On a pane of a Rex host the tty and those key bindings are out of reach:
--- the session runs on the host, this plugin on the app's machine. A hidden
--- block on the host copies the frames to the pane's tty, and a small
--- floating pane there takes the focus and reports the keys. See host_run.
+-- the session runs on the host, this plugin on the app's machine. The
+-- host's own rex runs a script there, the agent, in a hidden block: it
+-- draws the frames into the pane's tty, and a small floating pane takes
+-- the focus and gives it the keys. See host_run and agent_run.
 local M = {}
 
 local terminal = "com.superlogical.terminal"
@@ -24,7 +25,7 @@ local terminal = "com.superlogical.terminal"
 -- The protocol this plugin needs from the program: `rex-fingers protocol`
 -- prints the one the binary speaks. A binary built before the plugin was
 -- updated rejects the flags it does not know, so setup warns.
-local protocol = 4
+local protocol = 5
 -- The protocol the configured binary reported, read by setup. A flag it
 -- does not know is not sent; without a check it is taken to be current.
 local program_protocol = protocol
@@ -336,6 +337,9 @@ end
 -- server, so the answer is kept per session. Without this machine's ID,
 -- or when the call fails, the pane counts as local, as before this check.
 local session_hosts = {}
+-- The address a host's server listens on, as a program on the host
+-- reaches it, per host ID.
+local host_endpoints = {}
 local function remote_host(session_id)
   local known = session_hosts[session_id]
   if known ~= nil then return known or nil end
@@ -345,6 +349,9 @@ local function remote_host(session_id)
     local ok, status = pcall(rex.call, "server.status")
     if ok and type(status) == "table" and status.host_id and status.host_id ~= mine then
       host = status.host_id
+      for _, l in ipairs(status.listeners or {}) do
+        if l.primary and l.transport == "unix" then host_endpoints[host] = l.endpoint end
+      end
     end
   end
   session_hosts[session_id] = host
@@ -795,6 +802,8 @@ function M.setup(user)
       copy_command = "string?",
       scope = "string?",
       follow_scroll = "string?",
+      -- "false" runs a pane of a Rex host without the agent, for a test.
+      agent = "string?",
     },
     run = function(ctx, args)
       if not ctx.block_id then error("Fingers: no focused pane", 0) end
@@ -1075,6 +1084,240 @@ function M.setup(user)
     end
   end
 
+  -- A run through the agent. Every call above is a round trip to the
+  -- host, about ten before the hints show and five for a pick. The agent
+  -- is a script the host's own rex runs, in a hidden block on the host,
+  -- where its calls are local: it reads the panes, opens the reader,
+  -- draws, reads the keys, and puts the panes back. This machine starts
+  -- it, reads the panes from its screen, has the program make the frame,
+  -- writes that to its terminal, and waits for the pick: three calls to
+  -- the hints. internal/inpane/agent.lua is the script. Nothing is
+  -- installed; a host whose blocks have no rex gets the run above.
+
+  -- agent_command asks the program for the agent's argv and marks, once.
+  local agent
+  local function agent_command()
+    if not agent then
+      local r, err = exec({ binary(opts), "agent", "--lifetime", tostring(host_limit + 10) })
+      if not r then error(err, 0) end
+      agent = r
+    end
+    return agent
+  end
+
+  -- Hosts where the agent did not start.
+  local no_agent = {}
+
+  -- agent_message returns the message the agent printed under mark, or
+  -- nil. The agent prints it as one word, each byte but letters and
+  -- digits as %XX, so the terminal's wrapping cannot change it.
+  local function agent_message(text, mark)
+    local body = text:match(mark .. "<([^>]*)>")
+    if not body then return nil end
+    return rex.json.decode((body:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)))
+  end
+
+  -- agent_send writes one message to the agent's terminal. Rex takes
+  -- requests up to 1 MiB, so a large one goes in parts, cut between UTF-8
+  -- characters.
+  local function agent_send(sid, block, data)
+    local i = 1
+    while i <= #data do
+      local j = math.min(#data, i + 262143)
+      while j > i and j < #data and data:byte(j + 1) >= 0x80 and data:byte(j + 1) < 0xC0 do j = j - 1 end
+      local ok, err = rex.block.call(terminal, "write", { session_id = sid, block_id = block, data = data:sub(i, j) })
+      if not ok then error(err, 0) end
+      i = j + 1
+    end
+  end
+
+  local function temp_file(data)
+    local path = os.tmpname()
+    local f = assert(io.open(path, "w"))
+    f:write(data)
+    f:close()
+    return path
+  end
+
+  -- agent_run returns the run's result, or nil when the host has no
+  -- agent and the caller must run the reader and the writer.
+  local function agent_run(ctx, args, scope, host)
+    local sid = ctx.session_id
+    local command = agent_command()
+    local argv = {}
+    for _, a in ipairs(command.command) do argv[#argv + 1] = a end
+    argv[#argv + 1] = host_endpoints[host] or ""
+    argv[#argv + 1] = sid
+    argv[#argv + 1] = rex.json.encode({ pane = ctx.block_id, scope = scope, limit = host_limit, reader = reader_command() })
+    local b, err = rex.call("session.new_block", {
+      session_id = sid,
+      flavor = terminal .. ".shell",
+      label = "fingers-agent",
+      -- An agent that ends itself, at its lifetime, closes its block.
+      options = { shell = "none", command = argv, exit = { on_completion = true } },
+    })
+    if not b then error(err, 0) end
+    local block = b.block_id
+    local function screen()
+      local r = rex.block.call(terminal, "format", { session_id = sid, block_id = block, format = "text", unwrap = true, trim = true })
+      return r and r.content
+    end
+    local function pause() rex.exec({ "sleep", "0.05" }, { timeout = 1 }) end
+
+    -- Files of the run on this machine, removed when it ends.
+    local files, keep = {}, false
+    -- The agent's block is closed at the end, unless the agent still has
+    -- panes to put back. It then ends itself, and its block with it: a
+    -- close could come before it has written.
+    local agent_ends_itself = false
+    local ok, result = pcall(function()
+      -- The panes, as the agent read them.
+      local gathered
+      local limit = os.time() + 3
+      while not gathered do
+        local text = screen()
+        local early = text and agent_message(text, command.result)
+        if early then
+          if early.reader then closed_readers[early.reader] = true end
+          if early.status == "failed" then error("Fingers: " .. tostring(early.error), 0) end
+          return { ignored = 1 }
+        end
+        gathered = text and agent_message(text, command.gathered)
+        if not gathered then
+          -- No rex in the host's blocks, or one that cannot run the script.
+          if not text or text:find(command.failed, 1, true) or text:find("Error:", 1, true) or os.time() > limit then
+            rex.log("warn", "Fingers: no agent on the host, using the reader: " .. tostring(text):sub(1, 200))
+            -- A block that is gone says nothing about the host.
+            if text then no_agent[host] = true end
+            return nil
+          end
+          pause()
+        end
+      end
+      local origin = gathered.panes[1].block
+
+      local specs, remotes = {}, {}
+      for i, p in ipairs(gathered.panes) do
+        local vt, text = temp_file(p.vt), temp_file(p.text)
+        local file = remote_file(host, p.block)
+        os.remove(file)
+        files[#files + 1], files[#files + 2], files[#files + 3] = vt, text, file
+        remotes[i] = file
+        specs[i] = string.format("tty=%s,remote=true,vt=%s,text=%s,rows=%d,cols=%d,cursor=%s,wrap=%s",
+          file, vt, text, p.rows, p.cols, tostring(p.cursor ~= false), tostring(p.wrap ~= false))
+      end
+      local tail = { "--cwd", "" }
+      option_flags(tail, opts, args)
+      -- program_argv builds a call of the program on the run's panes;
+      -- current is each pane's VT captured now, one path per pane.
+      local function program_argv(sub, current)
+        local a = { binary(opts), sub }
+        for i, s in ipairs(specs) do
+          a[#a + 1] = "--pane"
+          a[#a + 1] = current and current[i] and (s .. ",current=" .. current[i]) or s
+        end
+        return a
+      end
+      local frames = os.tmpname()
+      files[#files + 1] = frames
+      local draw = program_argv("draw")
+      table.insert(draw, 3, "--begin")
+      table.insert(draw, 4, "--agent-file")
+      table.insert(draw, 5, frames)
+      local r, derr = exec(draw, unpack(tail))
+      if not r or r.hints == 0 then
+        pcall(agent_send, sid, block, "END\n")
+        if not r then error(derr, 0) end
+        return { hints = 0 }
+      end
+      local f = assert(io.open(frames, "rb"))
+      local data = f:read("*a")
+      f:close()
+      agent_send(sid, block, "RUN " .. #data .. "\n" .. data)
+      -- The agent gave the reader the session's focus from its own
+      -- connection, and the app has still sent the hint letters to the
+      -- pane, on the first run in a new pane. This call goes through the
+      -- app, as the reader's did when this plugin opened it, so the app
+      -- makes the change itself. The hints are up by now; it adds no wait
+      -- before them. A reader already closed makes it fail, which is fine.
+      rex.session.focus_block{ session_id = sid, block_id = gathered.reader }
+
+      -- The pick, or how the run ended. The agent ends the run by itself
+      -- at host_limit.
+      local res
+      local deadline = os.time() + host_limit + 4
+      while not res and os.time() < deadline do
+        local text = screen()
+        if not text then break end
+        res = agent_message(text, command.result)
+        if not res then pause() end
+      end
+      if not res then
+        -- No answer: the agent is gone with the hints up, or the calls to
+        -- the host no longer pass. The files stay: the next draw --begin
+        -- starts from the state the program kept. An agent still there
+        -- puts the panes back at its limit.
+        keep = true
+        agent_ends_itself = true
+        error("Fingers: the run on the host ended without an answer", 0)
+      end
+
+      -- The reader is closed. A trigger pressed during the run arrives
+      -- now, with the reader as its block, and starts nothing.
+      if res.reader then closed_readers[res.reader] = true end
+      -- The agent has put the panes back, unless one wrote during the
+      -- run. Then it sent each pane's screen as it is now, the program
+      -- works out the rows to repaint, and the agent writes them.
+      local current
+      if res.dirty and res.current then
+        current = {}
+        for i, vt in ipairs(res.current) do
+          current[i] = temp_file(vt)
+          files[#files + 1] = current[i]
+        end
+      end
+      local out
+      if res.status == "pick" and res.hint then
+        out, derr = exec(program_argv("press", current), "--typed", res.hint:sub(1, -2), "--key", res.hint:sub(-1),
+          "--modifier", res.modifier, "--session", sid, "--block", origin, unpack(tail))
+      else
+        out, derr = exec(program_argv("restore", current), unpack(tail))
+      end
+      if res.dirty then
+        -- The agent waits for these. With none sent, it writes the
+        -- restores it has when its wait is over.
+        agent_ends_itself = true
+        local sent = false
+        for i, file in ipairs(remotes) do
+          local rf = io.open(file, "rb")
+          if rf then
+            local bytes = rf:read("*a")
+            rf:close()
+            if #bytes > 0 then
+              sent = pcall(agent_send, sid, block, "W " .. (i - 1) .. " " .. #bytes .. "\n" .. bytes) or sent
+            end
+          end
+        end
+        if sent then pcall(agent_send, sid, block, "BYE\n") end
+      end
+      if not out then error(derr, 0) end
+      if res.error then error("Fingers: " .. res.error, 0) end
+      if out.remote_path then rex.log("info", "Fingers: the path is on another machine; copied it instead") end
+      if out.paste and not res.pasted then
+        local wrote, werr = rex.block.call(terminal, "write", { session_id = sid, block_id = origin, data = out.paste })
+        if not wrote then error(werr, 0) end
+      end
+      if out.error then error("Fingers: " .. out.error, 0) end
+      return { hints = r.hints, panes = #specs, status = res.status }
+    end)
+    if not keep then
+      for _, path in ipairs(files) do os.remove(path) end
+    end
+    if not agent_ends_itself then pcall(rex.call, "block.close", { session_id = sid, block_id = block }) end
+    if not ok then error(result, 0) end
+    return result
+  end
+
   host_run = function(ctx, args, scope, host)
     local started = os.time()
     local sid, pane = ctx.session_id, ctx.block_id
@@ -1087,6 +1330,14 @@ function M.setup(user)
     -- usage message.
     if program_protocol < 4 then
       error("Fingers: rex-fingers is older than the plugin and cannot reach panes on a Rex host; build it again", 0)
+    end
+    -- The agent first. A host without one gets the reader and the writer
+    -- below, as does a program too old to make the agent's frames.
+    if program_protocol >= 5 and not no_agent[host] and args.agent ~= "false" and not host_runs[sid] then
+      local ok, result = pcall(agent_run, ctx, args, scope, host)
+      host_ended[sid] = os.time()
+      if not ok then error(result, 0) end
+      if result then return result end
     end
     -- Claim the session before the first call that waits.
     -- A record still here is of a run Rex stopped: past 30 seconds, or

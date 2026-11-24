@@ -83,17 +83,17 @@ each wish to its option. For each change:
 | Path | Holds |
 | --- | --- |
 | `main.go` | package `main`: one call to `cli.Main`. It stays at the root so that `go install` of the module path builds the program |
-| `internal/cli/cli.go` | CLI: `show`, `patterns`, `layouts`, `version`, `protocol`, `reader`; action dispatch |
-| `internal/cli/pane.go` | CLI: `draw`, `press`, `restore` for `overlay = "pane"`, one pane or several `--pane` specs; each prints one JSON object; `runState` and `recover` for a run left without restore; `locate` and `findOffset` for the page a scrolled pane shows; `--remote-paths` for a pane running ssh; `--remote` for a pane on a Rex host, written to a file |
+| `internal/cli/cli.go` | CLI: `show`, `patterns`, `layouts`, `version`, `protocol`, `reader`, `agent`; action dispatch |
+| `internal/cli/pane.go` | CLI: `draw`, `press`, `restore` for `overlay = "pane"`, one pane or several `--pane` specs; each prints one JSON object; `runState` and `recover` for a run left without restore; `locate` and `findOffset` for the page a scrolled pane shows; `--remote-paths` for a pane running ssh; `--remote` for a pane on a Rex host, written to a file; `--agent-file` and `writeAgentFile` for the agent on that host |
 | `internal/cli/target.go` | `resolveTarget`: a match to a URL, a folder, a file, or the nearest folder of a missing path; `openTarget` for `:open:` and `:reveal:`; `runOpener`, which a test replaces |
 | `internal/cli/await.go` | the background wait of `draw --await-views`, for `follow_scroll` |
-| `internal/inpane` | `Begin` and `Restore` sequences, `BeginAlt` and `RestoreAlt` for a scrolled pane, `TTY(pid)` to find the pane's tty, `WriterCommand` and `ReaderCommand` for a pane on a Rex host |
+| `internal/inpane` | `Begin` and `Restore` sequences, `BeginAlt` and `RestoreAlt` for a scrolled pane, `TTY(pid)` to find the pane's tty; for a pane on a Rex host, `AgentCommand` and `agent.lua`, the script the host's own `rex` runs, and `WriterCommand` and `ReaderCommand` |
 | `internal/screen` | VT dump to lines of cells; `Parse`, `Line.Column`, `Line.CellAt` |
 | `internal/patterns` | `Builtin` map, `Default` (all but `digit`), `Weight` per pattern for hint order, `Compile`, `Set.Find` with leftmost-longest overlap rule |
 | `internal/hints` | `Generate` prefix-free hints; `Layouts` and `Alphabet` |
 | `internal/ui` | `Overlay`: raw mode, `draw`, key handling, modifiers |
 | `internal/rexcli` | `Pane.Size`, `Capture`, `Write`, `Pwd`, `Focus` through the `rex` CLI |
-| `lua/rex-fingers/init.lua` | `setup(opts)`, the action, rect lookup, capture; `host_run` and the writer for a pane on a Rex host |
+| `lua/rex-fingers/init.lua` | `setup(opts)`, the action, rect lookup, capture; for a pane on a Rex host, `host_run`, `agent_run`, which starts the agent and talks to it, and the reader and writer for a host without one |
 | `assets/` | the icon and the logos; `assets/README.md` lists them |
 
 ## Commands
@@ -126,5 +126,8 @@ Read the one the task needs:
   screen. What each script needs and overwrites, and the headless loops.
 - `docs/HISTORY.md`: before you bring back a key mode, a key sent into
   Lua, or an option that was cut.
+- `docs/HOST-PANES-STATUS.md`: before you work on a host's panes. The
+  open faults, what was measured, and the review findings not yet fixed.
+  `docs/REX-REPORT-DRAFT.md` is the unsent report to the Rex developers.
 - `docs/CONFIGURING.md`: the user walkthrough, one check per step.
 - `docs/TMUX-FINGERS.md`: every tmux-fingers option and its match here.

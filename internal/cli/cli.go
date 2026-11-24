@@ -59,7 +59,8 @@ func version() string {
 //	3  --remote-paths, and remote_path in press's reply
 //	4  --remote, the writer fields in draw's reply, and the reader
 //	   command
-const protocol = 4
+//	5  --agent-file, and the agent command
+const protocol = 5
 
 // The special action values, as in tmux-fingers, and :reveal:, which is
 // not in tmux-fingers.
@@ -119,6 +120,20 @@ func Main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	case "agent":
+		// The agent of a run on a Rex host, which the plugin starts on the
+		// host with the host's own rex. Its argv and its marks come from
+		// here, as the reader's do.
+		fs := flag.NewFlagSet("agent", flag.ExitOnError)
+		lifetime := fs.Int("lifetime", 25, "")
+		fs.Usage = usage
+		fs.Parse(os.Args[2:])
+		err := reply(map[string]any{"command": inpane.AgentCommand(*lifetime), "gathered": inpane.AgentGathered,
+			"result": inpane.AgentResult, "failed": inpane.AgentFailed})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	default:
 		usage()
 		os.Exit(2)
@@ -133,6 +148,7 @@ func usage() {
        rex-fingers version
        rex-fingers protocol
        rex-fingers reader [--lifetime SECONDS]
+       rex-fingers agent [--lifetime SECONDS]
 
 flags of show:
   --vt-file FILE          the pane's VT capture; read and deleted
@@ -159,6 +175,10 @@ also take the flags of show that pick and style the hints:
                           local file each write is appended to, for the
                           caller to send on; draw's reply holds the argv
                           of a writer to run on that machine
+  --agent-file FILE       (draw) with remote panes: write nothing to their
+                          files, and write to FILE, as JSON, each pane's
+                          frame and restore, the hints, and the actions,
+                          for the agent on that machine
   --remote-paths          (press) the pane's paths are on another machine,
                           as in ssh: :open: and :reveal: copy a path and
                           open nothing; --remote implies it

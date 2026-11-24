@@ -85,6 +85,46 @@ the pane that has focus. The owner tried it and turned it down the same
 day, and it was never committed. The plugin binds fewer keys instead.
 [REX-FACTS.md](REX-FACTS.md) keeps the floating-layer facts it relied on.
 
+## The script pushed to a host
+
+On 2026-11-24 a run on a Rex host took 2.3 s to the hints, since every
+call from this machine's action is a round trip. The first plan was to
+push a Lua script to the host with `client.set_script`: it loads into
+the server's memory for one client, binds keys there, and calls the Rex
+API at no network cost. It worked from a `rex do` script. From the
+config action, on a host's tab in the app, Rex refused it: "a key
+handler cannot replace the script of the client whose key it is
+handling". A script the CLI pushes belongs to the CLI's client, and the
+app's keys do not reach it. So the keys stayed with a floating reader,
+and the host's own `rex` runs the rest: the agent of
+[DESIGN.md](DESIGN.md). A pushed script may work once Rex runs actions
+from client scripts; [REX-FACTS.md](REX-FACTS.md) has what was tested.
+
+Installing the plugin and the program on the host was ruled out by the
+owner the same day: the plugin on the client machine must work on any
+host and session it connects to.
+
+## The key mode for a host's panes
+
+On 2026-11-24 a key mode came back for host panes only, for some hours,
+and was never committed. The reader had two faults: letters reached the
+shell when the app's focus did not follow, and the app froze when the
+user left the tab during a run, since the run's action stays alive. With
+a mode there is no reader and no live action: the trigger drew the hints
+through the agent, queued `client.mode.enter` for a `fingers` mode, and
+returned; each letter was bound in the mode to an action,
+`rex_fingers_host_key`, which told the agent the pick by a label on its
+block.
+
+It did not work. In a host's tab the app never turned the mode on: no
+panel showed, `s` was typed into the shell, and the app logged `Skipped
+client.mode.exit, which rex_fingers asked for: it isn't available here`
+for each of six runs, and nothing about the enter. The plugin's side was
+sound: the mode and its 138 bindings were in `rex keymap`, and no action
+failed. The host's keymap is empty, and the likely cause is that the app
+looks for the mode there; that was not proven. [REX-FACTS.md](REX-FACTS.md)
+has the evidence. The reader came back the same day.
+
 ## The align option
 
 `align` chose which two rows a float hides, top or bottom. It was cut on

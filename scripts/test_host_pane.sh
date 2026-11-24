@@ -66,10 +66,16 @@ blocks() { T api call -s "$S" session.list_blocks '{}' | jq -r '.blocks[] | "\(.
 reader() { T api call -s "$S" session.view '{}' | jq -r '[.windows[0].layers[] | select(.kind!="tiled") | .blocks[] | select(.label=="fingers-reader") | .block_id][0] // empty'; }
 focused() { T api call -s "$S" session.view '{}' | jq -r '.windows[0].focused_block_id'; }
 screen() { T capture -s "$S" -b "${1:-$B}" --format=text --trim; }
-vt() { T block call -s "$S" -b "$B" format '{"format":"vt"}' | jq -j .content; }
+# The CLI reads a dump over 1 MiB in parts; one format call would fail.
+vt() { T capture -s "$S" -b "$B" --format=vt; }
 # key BYTES types into the reader, as the app does while it has the focus.
 key() { T block call -s "$S" -b "$(reader)" write "$(jq -cn --arg d "$1" '{data:$d}')" >/dev/null; }
-trigger() { T --timeout 60s do rex_fingers -s "$S" -b "$@" > "$dir/trigger.out" 2>&1; }
+# TEST_AGENT=false runs every case without the agent, as on a host whose
+# blocks have no rex: the plugin's reader and writer.
+mode=${TEST_AGENT:-true}
+extra=
+[ "$mode" = false ] && extra="agent=false"
+trigger() { T --timeout 60s do rex_fingers -s "$S" -b "$@" $extra > "$dir/trigger.out" 2>&1; }
 result() { tr -d '\n' < "$dir/trigger.out" | cut -c1-90; }
 wait_reader() { i=0; until [ -n "$(reader)" ]; do i=$((i + 1)); [ $i -gt 80 ] && return 1; sleep 0.1; done; }
 wait_hints() { i=0; until screen | grep -q 'atmp/alpha'; do i=$((i + 1)); [ $i -gt 120 ] && return 1; sleep 0.1; done; }
@@ -100,12 +106,26 @@ clean() {
 unchanged() { vt > "$dir/vt.after"; if cmp -s "$dir/vt.before" "$dir/vt.after"; then ok "pane as before"; else fail "pane differs from before"; fi; }
 finish() { T kill "$S" >/dev/null; }
 
+ms() { perl -MTime::HiRes=time -e 'printf "%d", time * 1000'; }
+wait_restored() { i=0; while screen | grep -q 'atmp/alpha'; do i=$((i + 1)); [ $i -gt 200 ] && return 1; sleep 0.02; done; }
+
 if begin "pick" 0.28; then
+  t=$(ms)
   trigger "$B" &
   run=$!
   wait_hints && wait_reader
+  shown=$(($(ms) - t))
   expect "the reader has the focus" "$(focused)" "$(reader)"
-  key a; wait $run
+  t=$(ms); key a; wait_restored; back=$(($(ms) - t)); wait $run; over=$(($(ms) - t))
+  echo "       hints after $shown ms, pane back $back ms after the key, action over after $over ms"
+  if [ "$mode" = false ]; then
+    expect "not run by the agent" "$(jq -r '.status // "none"' "$dir/trigger.out")" none
+  else
+    # The agent draws after three calls and puts the pane back by itself.
+    expect "run by the agent" "$(jq -r .status "$dir/trigger.out")" pick
+    if [ $shown -le 1800 ]; then ok "hints within 1.8 s"; else fail "hints after $shown ms, want 1800 at most"; fi
+    if [ $back -le 500 ]; then ok "pane back within 0.5 s"; else fail "pane back after $back ms, want 500 at most"; fi
+  fi
   expect "copied" "$(cat "$dir/copied" 2>/dev/null)" /tmp/alpha
   clean; unchanged; finish
 fi
@@ -141,6 +161,57 @@ if begin "escape" 0.28; then
   run=$!
   wait_hints && wait_reader; key "$(printf '\033')"; wait $run
   expect "nothing copied" "$(cat "$dir/copied" 2>/dev/null)" ""
+  clean; unchanged; finish
+fi
+
+if begin "output during a run" 0.28; then
+  # The pane prints a line while the hints are up. The key still picks,
+  # the line stays, and no hint letter is left on the screen.
+  T send -s "$S" -b "$B" "sh -c 'sleep 5; echo late-output'"; T send-key -s "$S" -b "$B" enter
+  trigger "$B" &
+  run=$!
+  wait_hints && wait_reader
+  i=0; until screen | grep -q '^late-output'; do i=$((i + 1)); [ $i -gt 100 ] && break; sleep 0.1; done
+  sleep 0.5; key a; wait $run; sleep 0.5
+  expect "copied" "$(cat "$dir/copied" 2>/dev/null)" /tmp/alpha
+  expect "the line the pane printed" "$(screen | grep -c '^late-output')" 1
+  expect "hint letters left" "$(screen | grep -c '^[a-z]tmp/')" 0
+  expect "paths back" "$(screen | grep -c '^/tmp/')" 2
+  clean; finish
+fi
+
+if [ "$mode" != false ] && begin "output during a run, action killed" 0.28; then
+  # The pane prints while the hints are up, and the action dies before
+  # the run ends: nobody sends the agent the rows to repaint. After its
+  # wait it writes the restore it has, so no hint letter stays.
+  T send -s "$S" -b "$B" "sh -c 'sleep 5; echo late-output'"; T send-key -s "$S" -b "$B" enter
+  T --timeout 9s do rex_fingers -s "$S" -b "$B" >/dev/null 2>&1
+  expect "hints still up when the action died" "$(screen | grep -c '^[a-z]tmp/')" 2
+  sleep 16
+  expect "hint letters left" "$(screen | grep -c '^[a-z]tmp/')" 0
+  expect "paths back" "$(screen | grep -c '^/tmp/')" 2
+  expect "no reader or agent left" "$(blocks | grep -c 'fingers-')" 0
+  expect "focus on the pane" "$(focused)" "$B"
+  finish
+fi
+
+if begin "long scrollback" 0.28; then
+  # 150,000 rows above the screen, megabytes in the pane's dump. The
+  # capture reads only its end; read whole, 48 KiB a call, the run would
+  # pass its limit before the hints showed.
+  T send -s "$S" -b "$B" "sh -c 'seq 1 150000 | sed s/^/a-row-of-the-scrollback-/'"; T send-key -s "$S" -b "$B" enter; sleep 6
+  # Clear the screen and keep the scrollback, which a shell's clear may drop.
+  T send -s "$S" -b "$B" "printf '\\033[H\\033[2J'; printf '/tmp/%s\n' alpha beta"; T send-key -s "$S" -b "$B" enter; sleep 1
+  total=$(T block call -s "$S" -b "$B" format '{"format":"vt","max_bytes":1024}' | jq -r .total)
+  if [ "${total:-0}" -gt 1000000 ]; then ok "the dump holds $total bytes"; else fail "the dump holds ${total:-0} bytes, want over 1000000"; fi
+  vt > "$dir/vt.before"
+  t=$(now)
+  trigger "$B" &
+  run=$!
+  wait_hints && wait_reader; took=$(($(now) - t))
+  if [ $took -le 7 ]; then ok "hints after $took s"; else fail "hints after $took s, want 7 at most"; fi
+  key a; wait $run
+  expect "copied" "$(cat "$dir/copied" 2>/dev/null)" /tmp/alpha
   clean; unchanged; finish
 fi
 
@@ -183,7 +254,7 @@ if begin "queued triggers" 0.28; then
   run=$!
   others=
   for n in 1 2 3 4 5 6 7 8 9; do
-    T --timeout 60s do rex_fingers -s "$S" -b "$B" > "$dir/queued.$n" 2>&1 &
+    T --timeout 60s do rex_fingers -s "$S" -b "$B" $extra > "$dir/queued.$n" 2>&1 &
     others="$others $!"
   done
   wait_hints && wait_reader; key "$(printf '\033')"; wait $run $others
@@ -197,7 +268,7 @@ if begin "action killed" 0.28; then
   # The caller goes away after 5 s, as when the app restarts: Rex stops
   # the action and runs no cleanup. The focus is on the reader, so the
   # next trigger arrives there; it must run on the pane.
-  T --timeout 5s do rex_fingers -s "$S" -b "$B" >/dev/null 2>&1
+  T --timeout 5s do rex_fingers -s "$S" -b "$B" $extra >/dev/null 2>&1
   sleep 1
   R=$(reader)
   expect "the dead run left its reader with the focus" "$(focused)" "$R"
@@ -212,10 +283,17 @@ fi
 
 if begin "reader ends itself" 0.28; then
   # Nobody presses the key again after the action died.
-  T --timeout 5s do rex_fingers -s "$S" -b "$B" >/dev/null 2>&1
+  T --timeout 5s do rex_fingers -s "$S" -b "$B" $extra >/dev/null 2>&1
   sleep 22
   expect "reader gone after 20 s" "$(reader)" ""
   expect "focus back on the pane" "$(focused)" "$B"
+  if [ "$mode" != false ]; then
+    # The agent ends the run by itself: the pane is back, and at its
+    # lifetime its block is gone too.
+    unchanged
+    sleep 6
+    expect "no agent left" "$(blocks | grep -c 'fingers-')" 0
+  fi
   finish
 fi
 
@@ -226,14 +304,22 @@ if begin "reload during a run" 0.28; then
   run=$!
   wait_hints && wait_reader; R=$(reader)
   T config reload >/dev/null 2>&1; wait $run
-  trigger "$R"
-  expect "trigger on the old reader" "$(result)" '{"closed":1}'
-  expect "nothing left" "$(blocks | grep -c 'fingers-')" 0
-  expect "focus on the pane" "$(focused)" "$B"
-  sleep 1
-  trigger "$B" &
+  if [ "$mode" = false ]; then
+    trigger "$R"
+    expect "trigger on the old reader" "$(result)" '{"closed":1}'
+    expect "nothing left" "$(blocks | grep -c 'fingers-')" 0
+    expect "focus on the pane" "$(focused)" "$B"
+    sleep 1
+    trigger "$B" &
+  else
+    # The agent of the lost run still has its reader up. The trigger
+    # arrives there: the new agent closes both and runs on the pane.
+    trigger "$R" &
+  fi
   run=$!
-  sleep 3; wait_reader; key "$(printf '\033')"; wait $run
+  sleep 3; wait_reader
+  if [ "$(reader)" != "$R" ]; then ok "a new reader"; else fail "the old reader is still up"; fi
+  key "$(printf '\033')"; wait $run
   clean; unchanged; finish
 fi
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/xeind/rex-fingers/internal/inpane"
@@ -250,6 +251,70 @@ func TestRemotePaneWritesToItsFile(t *testing.T) {
 	}
 	if _, err := os.Stat(runFile(out)); err == nil {
 		t.Error("restore left the run file")
+	}
+}
+
+// With --agent-file, draw leaves a remote pane's file empty and writes one
+// document for the agent on the pane's machine: the frame, the bytes that
+// put the pane back, every hint, and the action of each modifier. The run
+// stays, so the press that follows the agent's pick still finds it.
+func TestAgentFileHoldsTheRun(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	dir := t.TempDir()
+	vt := filepath.Join(dir, "pane.vt")
+	if err := os.WriteFile(vt, []byte("see /tmp/a\r\nand /tmp/b"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "rex-fingers-host-test.out")
+	doc := filepath.Join(dir, "agent.json")
+	spec := "tty=" + out + ",remote=true,vt=" + vt + ",rows=2,cols=20,cursor=true,wrap=true"
+
+	got := runPane(t, "draw", "--begin", "--agent-file", doc, "--pane", spec, "--shift-action", ":paste:")
+	if got["hints"] != float64(2) {
+		t.Fatalf("draw reply: %v", got)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("the frame is still in the pane's file")
+	}
+	data, err := os.ReadFile(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var run struct {
+		Panes []struct {
+			Frame, Restore string
+		}
+		Targets []struct {
+			Hint, Text string
+			Pane       int
+		}
+		Actions map[string]string
+	}
+	if err := json.Unmarshal(data, &run); err != nil {
+		t.Fatal(err)
+	}
+	if len(run.Panes) != 1 || !strings.HasPrefix(run.Panes[0].Frame, inpane.Begin) {
+		t.Fatalf("frame: %+v", run.Panes)
+	}
+	if !strings.Contains(run.Panes[0].Restore, "see /tmp/a") || !strings.HasSuffix(run.Panes[0].Restore, "\x1b[?25h") {
+		t.Fatalf("restore does not repaint the screen and show the cursor: %q", run.Panes[0].Restore)
+	}
+	if len(run.Targets) != 2 || run.Targets[0].Text != "/tmp/a" || run.Targets[1].Text != "/tmp/b" || run.Targets[0].Hint == run.Targets[1].Hint {
+		t.Fatalf("targets: %+v", run.Targets)
+	}
+	if run.Actions["main"] != ":copy:" || run.Actions["shift"] != ":paste:" {
+		t.Fatalf("actions: %v", run.Actions)
+	}
+
+	// The agent picked the second hint with Shift.
+	hint := run.Targets[1].Hint
+	got = runPane(t, "press", "--pane", spec, "--shift-action", ":paste:", "--copy-command", "cat > /dev/null",
+		"--typed", hint[:len(hint)-1], "--key", hint[len(hint)-1:], "--modifier", "shift")
+	if got["done"] != true || got["paste"] != "/tmp/b" {
+		t.Fatalf("press reply: %v", got)
+	}
+	if _, err := os.Stat(runFile(out)); err == nil {
+		t.Error("press left the run file")
 	}
 }
 
