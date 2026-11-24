@@ -215,6 +215,28 @@ if begin "long scrollback" 0.28; then
   clean; unchanged; finish
 fi
 
+if [ "$mode" != false ] && begin "scrolled page" 0.28; then
+  # The pane is taken to show a page of its scrollback: the rows the app
+  # would copy come in a file. The hints go on that page, on the
+  # alternate screen, and the pane is as before after the pick.
+  T send -s "$S" -b "$B" "sh -c 'clear; seq 1 300 | sed s,^,/tmp/row-,'"; T send-key -s "$S" -b "$B" enter; sleep 1.5
+  rows=$(T block call -s "$S" -b "$B" size '{}' | jq -r .rows)
+  seq 60 $((59 + rows)) | sed s,^,/tmp/row-, > "$dir/view"
+  vt > "$dir/vt.before"
+  T --timeout 60s do rex_fingers -s "$S" -b "$B" view_file="$dir/view" > "$dir/trigger.out" 2>&1 &
+  run=$!
+  i=0; until screen | grep -q '^[a-z]*mp/row-70$'; do i=$((i + 1)); [ $i -gt 120 ] && break; sleep 0.1; done
+  wait_reader
+  line=$(screen | grep '^[a-z]*mp/row-70$' | head -1)
+  case "$line" in ?tmp/row-70) hint=$(printf %s "$line" | cut -c1) ;; *) hint=$(printf %s "$line" | cut -c1-2) ;; esac
+  expect "a hint on a row of the page" "$(printf %s "$hint" | grep -c '^[a-z][a-z]*$')" 1
+  expect "no hint on the last rows" "$(screen | grep -c '^[a-z]*mp/row-300$')" 0
+  for k in $(printf %s "$hint" | sed 's/./& /g'); do key "$k"; sleep 0.3; done
+  wait $run
+  expect "copied" "$(cat "$dir/copied" 2>/dev/null)" /tmp/row-70
+  clean; unchanged; finish
+fi
+
 if begin "window scope" 0.28; then
   B2=$(T split -s "$S" -b "$B" --split=below --focus=false --json | jq -r '.block_id // .block_ids[0]')
   sleep 1.5

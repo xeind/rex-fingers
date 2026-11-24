@@ -281,7 +281,50 @@ found.
 
 **OSC 52 written into a host pane's tty** reached the host's server
 (`clipboard_read` returned it), but not the Mac's clipboard, with the
-pane not focused. Copy runs `pbcopy` here. Tested 2026-11-22.
+pane not focused. Copy runs `pbcopy` here. Tested 2026-11-22. On
+2026-11-24, app snapshot 2104, it did reach the Mac's clipboard, twice:
+written by another process into the tty of a pane of a session the app
+did not show, and again with the app on that session. Nothing uses it
+yet; an agent could finish a copy with it and need no answer from this
+machine.
+
+The facts below were tested 2026-11-24 in the afternoon: CLI and servers
+`0.1.0-preview.22`, app snapshot 2104, the Ubuntu host.
+
+**An action's Rex calls, run from a key in a host's tab, go to the
+host; `ctx.client_id` is the app's ID on this machine's server.**
+`client.perform` with that ID, called from the action, failed on the
+host with 404, three times (host log, 15:46). The app is a client of
+both servers, with a different ID on each. A program the action starts
+with `rex.exec` runs here, and its `rex -C ID do` reaches the app
+through this machine's server. Used by `host_view` in `init.lua`.
+
+**The app performs copy mode on a host's pane, and during a live
+action.** `rex -S cordovan -C colter do pane.copy_mode.*`, with the
+app on a session of the host and the pane two pages up, put rows 110 to
+173 of 300 on the Mac's clipboard. From a run started by a key, with
+the action alive, `rex-fingers view` got the rows and the hints showed
+on the scrolled page (the owner, 15:53). The eight steps took 1.38 s
+from a shell. The app must allow remote control.
+
+**`pane.send_key` with a key bound to a config action starts no action
+in a host's tab.** `rex -S cordovan -C colter do pane.send_key
+key=alt+f` typed the key into the pane. So only a real key press tests
+a run in the app.
+
+**The app's own `title` for a float is the terminal's title when its
+owner is the foreground program.** With the reader's title written
+0.3 s after its start, the app showed the box as `fingers` (the owner,
+15:53).
+
+**The app stopped answering twice more, each time in the second it
+loaded this machine's session.** At 15:46:43 and 15:53:14, 2 and 11 s
+into a run on the host, it sent `data.connect` and `block.method` for a
+local session, then no `client.reply`. It logged "Application
+termination requested" 6 and 11 s later and a new process started
+within a second. At 15:53:24 the run failed first, with "the run on the
+host ended without an answer". No crash report. That makes five times
+with the same order of events.
 
 ## The clipboard
 

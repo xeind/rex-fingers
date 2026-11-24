@@ -14,8 +14,9 @@
 --   out  RXF2<...>          the pick, or how the run ended
 --   in   W <pane> <bytes>\n...  bytes for a pane's tty, after RXF2
 --   in   BYE\n              the last W is sent; stop
--- Its arguments, a JSON object: pane, scope, limit in seconds, and reader,
--- the argv and mark of the key reader.
+-- Its arguments, a JSON object: pane, scope, limit in seconds, reader,
+-- the argv and mark of the key reader, and view, the rows the pane shows
+-- when it is scrolled up, as the app copied them.
 local terminal = "com.superlogical.terminal"
 local args = rex.args
 local sid = rex.session_id
@@ -75,16 +76,54 @@ local function last_lines(text, sep, n)
   return text:sub(at[count - n + 1]), true
 end
 
+-- The most bytes read from the end of a pane's output to find a page the
+-- pane is scrolled to, and the most rows of VT sent to the plugin for it:
+-- the plugin reads the message in one call, which holds 1 MiB.
+local deepest, widest = 8 * 1024 * 1024, 300000
+
 -- screen_vt returns the pane's screen rows as VT. A row of the VT starts
 -- with its own colours, so the rows cut from those above draw the same.
--- More bytes are read until they hold every row.
-local function screen_vt(pane)
-  local bytes = math.max(32768, pane.rows * pane.cols * 8)
+-- More bytes are read until they hold every row. With rows, it returns
+-- that many rows from the end, the scrollback above the screen too.
+local function screen_vt(pane, rows)
+  local most = rows and deepest or 983040
+  rows = rows or pane.rows
+  local bytes = math.max(32768, rows * pane.cols * 8)
   while true do
     local data, whole = tail(pane.block, { format = "vt" }, bytes)
-    local vt, complete = last_lines(data, "\r\n", pane.rows)
-    if whole or complete or bytes >= 983040 then return vt end
-    bytes = math.min(983040, bytes * 4)
+    local vt, complete = last_lines(data, "\r\n", rows)
+    if whole or complete or bytes >= most then return vt end
+    bytes = math.min(most, bytes * 4)
+  end
+end
+
+-- depth returns how many rows from the end of the pane's output hold the
+-- page view, or nil when the page is not found. The page is searched by
+-- one of its rows, the longest that fits a row of the pane: the app may
+-- have joined a longer one from two rows. The program finds the page
+-- exactly; this only says how far up to read, so it adds two screens.
+local function depth(pane, view)
+  local key = ""
+  for line in view:gmatch("[^\r\n]+") do
+    line = line:gsub("%s+$", "")
+    if #line > #key and #line < pane.cols then key = line end
+  end
+  if key == "" then return nil end
+  local bytes = math.max(32768, pane.rows * pane.cols * 8)
+  while true do
+    local data, whole = tail(pane.block, { format = "text" }, bytes)
+    local at, from = nil, 1
+    while true do
+      local i = data:find(key, from, true)
+      if not i then break end
+      at, from = i, i + 1
+    end
+    if at then
+      local _, below = data:sub(at):gsub("\n", "")
+      return below + 2 * pane.rows
+    end
+    if whole or bytes >= deepest then return nil end
+    bytes = math.min(deepest, bytes * 4)
   end
 end
 
@@ -96,8 +135,10 @@ local function mode_set(modes, number)
 end
 
 -- read_pane returns what the program needs of one pane, or nil for a pane
--- with no process or no terminal.
-local function read_pane(block)
+-- with no process or no terminal. With view, the rows a scrolled pane
+-- shows, it reads the output down from that page. A page not found, or
+-- too far up to send, leaves the screen alone, which the program hints.
+local function read_pane(block, view)
   local process = call(block, "process")
   local proc = process and (process.child or process.foreground)
   if not proc then return nil end
@@ -109,6 +150,15 @@ local function read_pane(block)
   local modes = call(block, "modes")
   local pane = { block = block, tty = "/dev/" .. name, rows = size.rows, cols = size.columns,
                  cursor = mode_set(modes, 25), wrap = mode_set(modes, 7) }
+  local rows = view and depth(pane, view)
+  if rows then
+    local vt = screen_vt(pane, rows)
+    if #vt <= widest then
+      pane.vt = vt
+      pane.text = last_lines((tail(block, { format = "text", unwrap = true, trim = true }, math.max(32768, #vt))), "\n", rows)
+      return pane
+    end
+  end
   pane.vt = screen_vt(pane)
   pane.text = last_lines((tail(block, { format = "text", unwrap = true, trim = true }, math.max(32768, pane.rows * pane.cols * 8))), "\n", pane.rows)
   return pane
@@ -230,7 +280,7 @@ local reader = layer and layer.block_ids and layer.block_ids[1]
 
 local panes = {}
 for _, block in ipairs(blocks) do
-  local pane = read_pane(block)
+  local pane = read_pane(block, block == origin and args.view or nil)
   if pane then panes[#panes + 1] = pane end
 end
 

@@ -60,7 +60,8 @@ func version() string {
 //	4  --remote, the writer fields in draw's reply, and the reader
 //	   command
 //	5  --agent-file, and the agent command
-const protocol = 5
+//	6  the view command, and view in the agent's arguments
+const protocol = 6
 
 // The special action values, as in tmux-fingers, and :reveal:, which is
 // not in tmux-fingers.
@@ -120,6 +121,11 @@ func Main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	case "view":
+		if err := viewCommand(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case "agent":
 		// The agent of a run on a Rex host, which the plugin starts on the
 		// host with the host's own rex. Its argv and its marks come from
@@ -149,6 +155,7 @@ func usage() {
        rex-fingers protocol
        rex-fingers reader [--lifetime SECONDS]
        rex-fingers agent [--lifetime SECONDS]
+       rex-fingers view --client ID --out FILE [--wait MILLISECONDS]
 
 flags of show:
   --vt-file FILE          the pane's VT capture; read and deleted

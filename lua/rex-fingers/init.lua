@@ -25,7 +25,7 @@ local terminal = "com.superlogical.terminal"
 -- The protocol this plugin needs from the program: `rex-fingers protocol`
 -- prints the one the binary speaks. A binary built before the plugin was
 -- updated rejects the flags it does not know, so setup warns.
-local protocol = 5
+local protocol = 6
 -- The protocol the configured binary reported, read by setup. A flag it
 -- does not know is not sent; without a check it is taken to be current.
 local program_protocol = protocol
@@ -804,6 +804,8 @@ function M.setup(user)
       follow_scroll = "string?",
       -- "false" runs a pane of a Rex host without the agent, for a test.
       agent = "string?",
+      -- A file with the rows a host's pane shows, for a test.
+      view_file = "string?",
     },
     run = function(ctx, args)
       if not ctx.block_id then error("Fingers: no focused pane", 0) end
@@ -1139,6 +1141,32 @@ function M.setup(user)
     return path
   end
 
+  -- host_view returns the rows the focused pane shows, or nil. The app
+  -- copies them in copy mode, as for a local pane. There the copies are
+  -- queued and run when the action has returned; on a host the action
+  -- lives until the pick. And this action's Rex calls go to the host,
+  -- where the app has another client ID. So the program asks the app, on
+  -- this machine's server, and waits; it saves the clipboard and puts it
+  -- back. The copy comes before the agent starts: its reader takes the
+  -- focus, and copy mode acts on the focused pane.
+  local function host_view(ctx)
+    if not ctx.client_id then return nil end
+    local path = os.tmpname()
+    local t, err = exec({ binary(opts), "view", "--client", ctx.client_id, "--out", path })
+    local text
+    if t and t.view then
+      local f = io.open(path, "rb")
+      if f then
+        text = f:read("*a")
+        f:close()
+      end
+    end
+    os.remove(path)
+    if not t then error(err, 0) end
+    if t.error then error(t.error, 0) end
+    return text
+  end
+
   -- agent_run returns the run's result, or nil when the host has no
   -- agent and the caller must run the reader and the writer.
   local function agent_run(ctx, args, scope, host)
@@ -1148,7 +1176,24 @@ function M.setup(user)
     for _, a in ipairs(command.command) do argv[#argv + 1] = a end
     argv[#argv + 1] = host_endpoints[host] or ""
     argv[#argv + 1] = sid
-    argv[#argv + 1] = rex.json.encode({ pane = ctx.block_id, scope = scope, limit = host_limit, reader = reader_command() })
+    -- The rows a scrolled pane shows. The agent reads the pane's output
+    -- down from that page, and the program draws the hints on it.
+    local view
+    local follow = opts.follow_scroll and ctx.origin ~= "api" and ctx.origin ~= "cli"
+    if args.follow_scroll == "true" then follow = opts.follow_scroll end
+    if args.follow_scroll == "false" then follow = false end
+    if follow and not args.view_file and program_protocol >= 6 then
+      local vok, v = pcall(host_view, ctx)
+      if vok then view = v else rex.log("warn", "Fingers: follow_scroll on a host: " .. tostring(v)) end
+    end
+    if args.view_file then
+      local vf = io.open(args.view_file, "rb")
+      if vf then
+        view = vf:read("*a")
+        vf:close()
+      end
+    end
+    argv[#argv + 1] = rex.json.encode({ pane = ctx.block_id, scope = scope, limit = host_limit, reader = reader_command(), view = view })
     local b, err = rex.call("session.new_block", {
       session_id = sid,
       flavor = terminal .. ".shell",
@@ -1205,6 +1250,12 @@ function M.setup(user)
         remotes[i] = file
         specs[i] = string.format("tty=%s,remote=true,vt=%s,text=%s,rows=%d,cols=%d,cursor=%s,wrap=%s",
           file, vt, text, p.rows, p.cols, tostring(p.cursor ~= false), tostring(p.wrap ~= false))
+        if i == 1 and view then
+          -- The program reads the file once, at the draw, and removes it.
+          local page = temp_file(view)
+          files[#files + 1] = page
+          specs[i] = specs[i] .. ",view=" .. page
+        end
       end
       local tail = { "--cwd", "" }
       option_flags(tail, opts, args)

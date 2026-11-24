@@ -34,6 +34,14 @@ func run(args ...string) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
+// Perform asks the app client to perform one of its actions, such as
+// pane.copy_mode.enter, on its focused pane, and waits two seconds at
+// most. args are name=value pairs.
+func Perform(client, action string, args ...string) error {
+	_, err := run(append([]string{"-C", client, "--timeout", "2s", "do", action}, args...)...)
+	return err
+}
+
 func (p Pane) call(method string, args string, result any) error {
 	argv := []string{"block", "call", "-s", p.Session, "-b", p.Block, method}
 	if args != "" {

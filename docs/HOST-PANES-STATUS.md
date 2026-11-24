@@ -51,8 +51,10 @@ the host's speed or from the owner's `setup` options.
    reader as a small box on the pane, named `hexdump` after its
    program; it cannot be hidden (REX-FACTS.md, "Rex gives the focus
    only to a block placed in a window"). The reader now sets the title
-   `fingers`; that the app shows it is **not confirmed**.
-2. **The app stops answering during a run, and has exited.** Three
+   `fingers`, and the app shows it (the owner, 15:53).
+2. **The app stops answering during a run, and has exited.** Five
+   times by 2026-11-24 15:53, the last two with `follow_scroll` on a
+   host in the tree. The first three
    times, each in the second it loaded the panes of a local session. The
    run's action is alive until the pick, and its calls to the host go
    through the app. That a change of tab is the trigger is not proven.
@@ -88,9 +90,12 @@ a host; the first letter of a two-letter hint changes nothing on screen;
 
 ## How to carry on
 
-1. Have the owner reload the config and look at the reader's box on a
-   host's pane: `fingers` or `hexdump`. A run that types the letter
-   into the shell reopens fault 1.
+1. End the action once the hints are up; that is what faults 2 and 3
+   need. A way not yet built: the agent finishes a `:copy:` pick by
+   itself, with OSC 52 into the pane's tty, which reached the Mac's
+   clipboard on 2026-11-24 (REX-FACTS.md). Picks that need this machine,
+   such as a URL to open or a `copy_command`, still need an answer here.
+   A run that types the letter into the shell reopens fault 1.
 2. To see what the app did, read its log: `log show --predicate
    'subsystem == "com.superlogical.rex"'` for the minute of the run. The
    server's own log records an action only when it fails.

@@ -164,8 +164,9 @@ option.
   each time as it loaded another session's panes. A small box named
   `fingers` shows at the pane's top right corner while the hints are
   up: it reads the keys. The first letter of a two-letter hint changes nothing on screen.
-  `overlay = "float"` and `follow_scroll` do not reach a host's pane,
-  and `:open:` and `:reveal:` copy a path. The host needs `sh`, `stty`,
+  `overlay = "float"` does not reach a host's pane. `follow_scroll`
+  does, for the focused pane: the hints then take about 1.4 s longer,
+  and the app must allow remote control. `:open:` and `:reveal:` copy a path. The host needs `sh`, `stty`,
   `ps`, `sleep`, `tty`, and `hexdump`. A host whose panes have no `rex` of their own
   takes about 2.3 s to the hints and 1 s for a pick, and needs `cat`
   too.

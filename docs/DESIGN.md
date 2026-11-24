@@ -341,8 +341,21 @@ a longer output is read from `total` minus that with `blob_read`. Each
 row of the VT starts with its own SGR reset, so the rows draw the same
 without those above.
 
-`follow_scroll` is off on a host's pane: its draw runs in the
-background, with no writer. `:open:` and `:reveal:` copy a path, as
+`follow_scroll` on a host's pane takes another way than on a local
+one, where the app's copies are queued and run once the action has
+returned: on a host the action lives until the pick. Before the agent
+starts, the plugin runs `rex-fingers view --client ID`. The program
+saves the clipboard, asks the app for each copy-mode step with `rex -C
+ID do`, on this machine's server, waits for the rows, and puts the
+clipboard back. The rows go to the agent in its arguments as `view`.
+`depth` in `agent.lua` looks for the page in the end of the pane's
+output, up to 8 MiB back, and the agent sends the output from that page
+down. The pane's spec for `draw` gets `view=FILE`, and the program
+finds the page and paints it on the alternate screen, as for a local
+pane. A page not found, or more than 300 KB of VT above the last row,
+is left: the live screen is hinted. Only the focused pane is followed;
+copy mode acts on that one. Without the agent there is no
+`follow_scroll` on a host. `:open:` and `:reveal:` copy a path, as
 below.
 
 ## Paths on another machine

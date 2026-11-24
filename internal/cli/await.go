@@ -14,12 +14,15 @@ package cli
 // changes, puts the saved clipboard back, and draws.
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/xeind/rex-fingers/internal/rexcli"
 )
 
 // awaitEnv names the file with the saved clipboard, and marks the
@@ -158,4 +161,77 @@ wait:
 		return false
 	}
 	return true
+}
+
+// viewCommand gets the rows a scrolled pane shows, for a pane on a Rex
+// host. There the plugin's action lives until the pick, so the copies it
+// queued would run after the run, and its own calls go to the host,
+// where the app has another client ID. So this program asks the app, on
+// this machine's server, as rex -C does: it saves the clipboard, puts the
+// marker on it, has the app copy the page in copy mode, writes the rows
+// to --out, and puts the saved clipboard back. The app must allow remote
+// control. The reply says whether rows came; a step the app refused ends
+// the copy at once.
+func viewCommand(args []string) error {
+	fs := flag.NewFlagSet("view", flag.ExitOnError)
+	client := fs.String("client", "", "")
+	out := fs.String("out", "", "")
+	wait := fs.Int("wait", 1000, "")
+	fs.Usage = usage
+	fs.Parse(args)
+	if *client == "" || *out == "" {
+		return fmt.Errorf("view needs --client and --out")
+	}
+	saved, err := readClipboard()
+	if err != nil {
+		return err
+	}
+	mark := marker(*out, 0)
+	if err := writeClipboard(mark); err != nil {
+		return err
+	}
+	steps := [][]string{
+		{"pane.copy_mode.enter"},
+		{"pane.copy_mode.move", "to=screen_top"},
+		{"pane.copy_mode.select", "mode=line"},
+		{"pane.copy_mode.move", "to=screen_bottom"},
+		{"pane.copy_mode.yank"},
+	}
+	var failed error
+	for n, step := range steps {
+		if failed = rexcli.Perform(*client, step[0], step[1:]...); failed != nil {
+			// Copy mode is on after the first step; leave it.
+			if n > 0 {
+				rexcli.Perform(*client, "pane.copy_mode.exit")
+			}
+			break
+		}
+	}
+	found := false
+	if failed == nil {
+		deadline := time.Now().Add(time.Duration(*wait) * time.Millisecond)
+		empty := 0
+		for time.Now().Before(deadline) {
+			text, err := readClipboard()
+			// A writer clears the clipboard, then fills it; see awaitViews.
+			if err == nil && text == "" && empty < 8 {
+				empty++
+			} else if err == nil && text != mark {
+				found = os.WriteFile(*out, []byte(text), 0o600) == nil
+				break
+			}
+			time.Sleep(15 * time.Millisecond)
+		}
+		// The yank keeps its selection on screen. A new selection in copy
+		// mode, then leaving, drops it.
+		rexcli.Perform(*client, "pane.copy_mode.enter")
+		rexcli.Perform(*client, "pane.copy_mode.select", "mode=char")
+		rexcli.Perform(*client, "pane.copy_mode.exit")
+	}
+	writeClipboard(saved)
+	result := map[string]any{"view": found}
+	if failed != nil {
+		result["error"] = failed.Error()
+	}
+	return reply(result)
 }
