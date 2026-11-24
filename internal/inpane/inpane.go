@@ -130,16 +130,25 @@ exec cat > "/dev/$t"`
 // screen is told apart from one that has not started.
 const ReaderMark = "R"
 
+// ReaderTitle is the terminal title of the reader's pane.
+const ReaderTitle = "fingers"
+
 // ReaderCommand is the argv of a program that reports the keys typed into
 // its terminal, for a pane on another machine: it sets the terminal raw,
 // prints ReaderMark, and then prints each byte it reads as two hex digits
 // and a newline. It ends itself after lifetime seconds, so a reader left
 // behind does not keep the focus for good. It needs only sh, stty, sleep,
 // and hexdump.
+//
+// The app names a pane after its foreground program, hexdump, unless
+// that program set a title. Rex takes the program in the foreground when
+// the title arrives as the one that set it, so the title ReaderTitle is
+// written 0.3 s after the start, when sh has become hexdump. It goes to
+// stderr, which leaves stdout to the mark and the keys.
 func ReaderCommand(lifetime int) []string {
 	script := `stty raw -echo
 printf ` + ReaderMark + `
-(sleep "$1"; kill $$) >/dev/null 2>&1 &
+(sleep 0.3; printf '\033]2;` + ReaderTitle + `\007' >&2; exec 2>/dev/null; sleep "$1"; kill $$) >/dev/null &
 exec hexdump -v -e '1/1 "%02x\n"'`
 	return []string{"sh", "-c", script, "sh", strconv.Itoa(lifetime)}
 }
