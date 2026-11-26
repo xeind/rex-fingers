@@ -65,6 +65,16 @@ On a Mac, with Rex installed. Run the commands in a Rex pane, where
 
 To update, run the line of step 1 again, then `rex config reload`.
 
+Coming from v0.4.2 or older? That install is a git clone, and the
+script won't replace it. Move it aside, run step 1, then delete the old
+folder once rex-fingers works. Your `fingers.setup` lines don't change:
+
+```sh
+mv ~/.config/rex/plugins/rex-fingers ~/.config/rex/plugins/rex-fingers.old
+```
+
+To keep the clone instead, see [Build from source](#build-from-source).
+
 Tested with Rex for Mac 0.1.0 (2044) in nushell, bash, and zsh; panes of
 a Rex host with snapshot 2107.
 rex-fingers makes no network call after the install.
