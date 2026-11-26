@@ -262,7 +262,7 @@ func TestActionFolderFromPwd(t *testing.T) {
 
 	for _, pwd := range []string{
 		dir,
-		(&url.URL{Scheme: "file", Host: "colter.local", Path: dir}).String(),
+		(&url.URL{Scheme: "file", Host: "example.local", Path: dir}).String(),
 		(&url.URL{Scheme: "file", Path: dir}).String(),
 	} {
 		t.Run(pwd, func(t *testing.T) {

@@ -67,7 +67,8 @@ bounds. Used by the rectangle lookup in `init.lua`. Tested: not recorded.
 
 Tested 2026-11-22: CLI and both servers `0.1.0-preview.22` (`a086db17`),
 Rex for Mac snapshot 2083, a Mac on arm64 and an Ubuntu 26.04 arm64 host
-added as `ssh://cordovan`, reached over Tailscale.
+added as `ssh://HOST`. Below, `HOST` is that host's name and `APP` the
+app's client label, as `rex client ls` shows it.
 
 **A key bound to an action works in a host's tab; a key bound to a
 function does not.** With the plugin only in the Mac's config, alt+f in a
@@ -300,7 +301,7 @@ with `rex.exec` runs here, and its `rex -C ID do` reaches the app
 through this machine's server. Used by `host_view` in `init.lua`.
 
 **The app performs copy mode on a host's pane, and during a live
-action.** `rex -S cordovan -C colter do pane.copy_mode.*`, with the
+action.** `rex -S HOST -C APP do pane.copy_mode.*`, with the
 app on a session of the host and the pane two pages up, put rows 110 to
 173 of 300 on the Mac's clipboard. From a run started by a key, with
 the action alive, `rex-fingers view` got the rows and the hints showed
@@ -308,7 +309,7 @@ on the scrolled page (the owner, 15:53). The eight steps took 1.38 s
 from a shell. The app must allow remote control.
 
 **`pane.send_key` with a key bound to a config action starts no action
-in a host's tab.** `rex -S cordovan -C colter do pane.send_key
+in a host's tab.** `rex -S HOST -C APP do pane.send_key
 key=alt+f` typed the key into the pane. So only a real key press tests
 a run in the app.
 
@@ -319,9 +320,9 @@ owner is the foreground program.** With the reader's title written
 
 **A key mode turns on in a host's tab when the app is asked through
 this machine's server, and not through the host's.** With the app on a
-session of the host: `rex -C colter do client.mode.enter name=resize`
+session of the host: `rex -C APP do client.mode.enter name=resize`
 succeeded and `client.mode.exit` then worked once, as on a local tab.
-`rex -S cordovan -C colter do client.mode.enter name=resize` also
+`rex -S HOST -C APP do client.mode.enter name=resize` also
 returned without an error, but `client.mode.exit` after it failed with
 "isn't available here right now": no mode was on. An action run from a
 key in a host's tab sends its queued client actions by way of the host,
@@ -338,7 +339,7 @@ keymap`, with its bindings, and the app's new key bindings worked; yet
 that does not exist. Seven modes were tried: bound to app actions or to
 config actions, exclusive or not, with and without a key bound to
 `client.mode.enter`. Only `resize`, in the config since the app
-started, turned on. After `rex -C colter do client.config.reload`, the
+started, turned on. After `rex -C APP do client.config.reload`, the
 app's own action, every one of them did. So after a change to the
 modes, reload from the app. This, and not only the route through the
 host, kept the morning's `fingers` mode off. Tested 2026-11-24, app

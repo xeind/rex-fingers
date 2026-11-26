@@ -1,4 +1,8 @@
 bin/
 dist/
 local/
+# Working notes kept on the owner's machine only.
+docs/ACCESSIBILITY-SCROLL.md
+docs/REVIEW-2026-11-24.md
+docs/REX-REPORT-DRAFT.md
 .DS_Store
